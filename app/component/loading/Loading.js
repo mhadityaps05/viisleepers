@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react"
 import gsap from "gsap"
 
-export default function Loading({ onComplete }) {
+export default function Loading({ onComplete = () => {} }) {
   const [progress, setProgress] = useState(0)
   const progressRef = useRef({ value: 0 })
 
