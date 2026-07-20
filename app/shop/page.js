@@ -48,17 +48,19 @@ export default function shop() {
             <div className="w-full mt-5">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-5">
                 {items.map((item) => (
-                  <div
+                  <button
                     key={item.id}
                     id={`product-${item.id}`}
-                    className="flex flex-col items-start"
+                    type="button"
+                    aria-label={`View ${item.name}`}
+                    className="flex flex-col items-start text-left cursor-pointer focus:outline-none"
                   >
                     <img src={item.images[0]} alt={`${item.name} image`} />
                     <div className="mt-5 ml-5">
                       <h2>{item.name}</h2>
                       <h3>{`Rp.${item.price.toLocaleString("id-ID")}`}</h3>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

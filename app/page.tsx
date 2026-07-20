@@ -11,10 +11,10 @@ import Loading from "./component/loading/Loading"
 export default function page() {
   const [showLoading, setShowLoading] = useState(true)
 
-  useEffect(() => {
-    // Ensure loading screen shows on first mount
-    setShowLoading(true)
-  }, [])
+  // useEffect(() => {
+  //   // Ensure loading screen shows on first mount
+  //   setShowLoading(true)
+  // }, [])
 
   useEffect(() => {
     const lenis = new Lenis({
@@ -41,16 +41,16 @@ export default function page() {
 
   return (
     <div>
-      {showLoading && <Loading onComplete={handleLoadingComplete} />}
-      {!showLoading && (
-        <>
-          <Navbar />
-          <Home />
-          <About />
-          <Shop />
-          <Footer />
-        </>
-      )}
+      {/* {showLoading && <Loading onComplete={handleLoadingComplete} />}
+      {!showLoading && ( */}
+      <>
+        <Navbar />
+        <Home />
+        <About />
+        <Shop />
+        <Footer />
+      </>
+      {/* // )} */}
     </div>
   )
 }
