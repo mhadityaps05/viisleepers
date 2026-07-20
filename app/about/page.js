@@ -8,8 +8,8 @@ export default function about() {
           <img src={"img1.png"} alt="img" className="w-[140%] object-cover" />
         </div>
         <div className="grid grid-cols-2 gap-2 lg:pr-2 p-2">
-          <img src={"preview1.png"} className="w-full cursor-pointer" />
-          <img src={"preview2.png"} className="w-full cursor-pointer" />
+          <img src={"asset/preview1.JPG"} className="w-full cursor-pointer" />
+          <img src={"asset/preview2.JPG"} className="w-full cursor-pointer" />
         </div>
 
         <div className="absolute z-12 w-auto top-[40%] lg:top-[55%] left-2 md:left-5 px-2 md:px-0">

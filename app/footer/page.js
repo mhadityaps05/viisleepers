@@ -22,14 +22,17 @@ export default function Footer() {
           <div className="min-w-[140px] shrink-0 cursor-pointer sm:min-w-[180px] lg:min-w-[220px]">
             <a>Lookbook</a>
             <img
-              src="asset/lookbook.png"
-              className="mt-5 w-50 sm:w-32 lg:w-56"
+              src="asset/lookbook.JPG"
+              className="mt-5 w-50 h-85 sm:w-32 lg:w-56 lg:h-95"
             />
           </div>
 
           <div className="min-w-[140px] shrink-0 cursor-pointer sm:min-w-[180px] lg:min-w-[220px]">
             <a>Press</a>
-            <img src="asset/press.png" className="mt-5 w-50 sm:w-32 lg:w-56" />
+            <img
+              src="asset/press.JPG"
+              className="mt-5 w-50 sm:w-32 h-85 lg:h-95 lg:w-56"
+            />
           </div>
         </div>
       </div>
