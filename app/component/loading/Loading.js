@@ -56,14 +56,14 @@ export default function Loading({ onComplete = () => {} }) {
     >
       <div className="relative w-full h-full flex justify-center items-center overflow-hidden">
         <img
-          src="loading/loading.png"
+          src="/asset/loading.png"
           alt="Loading cave"
           className="loading-image absolute inset-0 w-full h-full object-cover"
         />
 
         <div className="relative z-10 w-full max-w-xl px-6">
           <div className="mb-4 text-center text-white text-2xl font-bold tracking-widest font-benguiat flex justify-center">
-            <img src={"logo.svg"} />
+            <img src={"/logo.svg"} />
           </div>
           <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
             <div

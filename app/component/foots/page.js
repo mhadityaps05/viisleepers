@@ -33,7 +33,7 @@ export default function page() {
 
         <div className="lg:pt-20 pt-10">
           <span className="text-white/20">Copyrigth 2026 viisleepers</span>
-          <span className="lg:ml-60 ml-[25%]">Credits</span>
+          <span className="lg:ml-56 ml-[25%]">Credits</span>
         </div>
       </div>
     </div>
