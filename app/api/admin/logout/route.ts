@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 
 export async function POST() {
   const cookieStore = await cookies()
-  cookieStore.delete("admin-token", { path: "/" })
+  cookieStore.delete({ name: "admin-token", path: "/" })
 
   return NextResponse.json({ success: true })
 }
