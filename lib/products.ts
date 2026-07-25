@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache"
 import { normalizeCategory } from "@/lib/category"
 import { prisma } from "@/lib/prisma"
 
@@ -13,6 +14,8 @@ export type ProductItem = {
 export type GroupedProducts = Record<string, ProductItem[]>
 
 export async function getGroupedProducts(): Promise<GroupedProducts> {
+  noStore()
+
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "asc" },
   })

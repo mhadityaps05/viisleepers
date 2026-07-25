@@ -1,6 +1,8 @@
 import Link from "next/link"
 import LogoutButton from "./LogoutButton"
 
+export const dynamic = "force-dynamic"
+
 const menu = [
   { name: "Dashboard", href: "/admin/dashboard" },
   { name: "Products", href: "/admin/dashboard/products" },
