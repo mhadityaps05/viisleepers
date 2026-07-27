@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Lenis from "lenis"
 import Navbar from "./component/navbar/page"
 import Home from "./home/page"
@@ -23,10 +23,15 @@ export default function HomeClient({ children }: HomeClientProps) {
     // Ini jalan HANYA di client, SETELAH hydration selesai.
     // Aman baca sessionStorage di sini.
     const alreadySeen = sessionStorage.getItem(LOADING_SEEN_KEY)
-    if (alreadySeen) {
-      setShowLoading(false)
-    }
-    setCheckedSession(true)
+
+    const frame = requestAnimationFrame(() => {
+      if (alreadySeen) {
+        setShowLoading(false)
+      }
+      setCheckedSession(true)
+    })
+
+    return () => cancelAnimationFrame(frame)
   }, [])
 
   useEffect(() => {
@@ -46,10 +51,10 @@ export default function HomeClient({ children }: HomeClientProps) {
     return () => lenis.destroy()
   }, [])
 
-  const handleLoadingComplete = () => {
+  const handleLoadingComplete = useCallback(() => {
     sessionStorage.setItem(LOADING_SEEN_KEY, "true")
     setShowLoading(false)
-  }
+  }, [])
 
   // Tunggu sampai kita udah sempat cek sessionStorage,
   // biar nggak sempat "kelihatan" Loading walau cuma sekejap buat returning visitor.

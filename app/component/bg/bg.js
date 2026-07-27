@@ -1,43 +1,32 @@
 "use client"
 import React, { useEffect, useRef } from "react"
 import gsap from "gsap"
-import { ScrollTrigger } from "gsap/ScrollTrigger"
-
-gsap.registerPlugin(ScrollTrigger)
 
 export default function Bg() {
   const bgRef = useRef(null)
 
   useEffect(() => {
-    const bg = bgRef.current
-    if (!bg) return
+    const scope = bgRef.current
+    if (!scope) return
 
-    // Parallax scroll effect on background
-    gsap.to(bg, {
-      yPercent: 100,
-      scrollTrigger: {
-        trigger: bg,
-        start: "enter",
-        end: "bottom center",
-        scrub: 1,
-        markers: false,
-      },
-    })
+    const ctx = gsap.context(() => {
+      gsap.set(".bg-media", {
+        transformOrigin: "50% 50%",
+      })
+    }, scope)
 
-    return () => {
-      ScrollTrigger.getAll().forEach((trigger) => trigger.kill())
-    }
+    return () => ctx.revert()
   }, [])
 
   return (
     <div
       ref={bgRef}
-      className="bg absolute inset-0 overflow-hidden flex justify-center items-center z-[-1] w-full"
+      className="bg-stage absolute inset-0 z-0 overflow-hidden flex items-center justify-center"
     >
       <img
-        src="bg.svg"
+        src="/bg.svg"
         alt="Background"
-        className="w-full h-full object-cover"
+        className="bg-media h-full w-full object-cover object-center"
       />
     </div>
   )
