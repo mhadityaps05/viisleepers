@@ -32,7 +32,7 @@ export default function CartPage() {
 
                 return (
                   <div
-                    key={item.id}
+                    key={`${item.productId}-${item.size}`}
                     className="border border-white/30 rounded-lg p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
                   >
                     <div className="flex items-center gap-4">
@@ -43,6 +43,7 @@ export default function CartPage() {
                       />
                       <div>
                         <h2 className="text-xl">{item.name}</h2>
+                        <p className="text-white/80">Size: {item.size}</p>
                         <p className="text-white/80">
                           Rp.{item.price.toLocaleString("id-ID")}
                         </p>
@@ -56,7 +57,11 @@ export default function CartPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          updateQuantity(item.id, item.quantity - 1)
+                          updateQuantity(
+                            item.productId,
+                            item.size,
+                            item.quantity - 1,
+                          )
                         }
                         className="w-8 h-8 border border-white rounded hover:bg-white hover:text-black transition"
                       >
@@ -68,7 +73,11 @@ export default function CartPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          updateQuantity(item.id, item.quantity + 1)
+                          updateQuantity(
+                            item.productId,
+                            item.size,
+                            item.quantity + 1,
+                          )
                         }
                         className="w-8 h-8 border border-white rounded hover:bg-white hover:text-black transition"
                       >
@@ -76,7 +85,9 @@ export default function CartPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => removeFromCart(item.id)}
+                        onClick={() =>
+                          removeFromCart(item.productId, item.size)
+                        }
                         className="ml-2 border border-white/70 rounded px-3 py-1 hover:bg-white hover:text-black transition"
                       >
                         Remove
@@ -91,13 +102,13 @@ export default function CartPage() {
               <p className="text-2xl">
                 Total: Rp.{cartTotal.toLocaleString("id-ID")}
               </p>
-              <button
+              <Link
                 type="button"
-                disabled
-                className="h-11 px-6 border border-white rounded-lg text-white/70 cursor-not-allowed"
+                href="/checkout"
+                className="flex items-center h-11 px-6 border border-white rounded-lg text-white/70"
               >
-                Checkout (Soon)
-              </button>
+                Checkout
+              </Link>
             </div>
           </div>
         )}

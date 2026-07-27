@@ -73,7 +73,7 @@ export default async function ProductDetailPage({
         </div>
         <div className="flex gap-5 mt-5 justify-center w-full">
           <AddToCartButton
-            id={product.id}
+            productId={product.id}
             name={product.name}
             price={product.price}
             image={product.images[0] ?? "/logo.svg"}
