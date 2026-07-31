@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import Navbar from "@/app/component/navbar/page"
 import { useCart } from "@/lib/CartContext"
 
@@ -50,11 +49,12 @@ function getSelectedSize(item) {
 
 export default function CheckoutPage() {
   const { cartItems, cartTotal, clearCart } = useCart()
-  const router = useRouter()
   const [formData, setFormData] = useState(initialForm)
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState("")
+
+  const midtransClientKey = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || ""
 
   const isMissingRequired = useMemo(
     () =>
@@ -143,10 +143,15 @@ export default function CheckoutPage() {
     const subtotal = cartTotal
     const total = subtotal + shippingFee
 
+    if (!midtransClientKey) {
+      setSubmitError("Midtrans client key is not configured.")
+      return
+    }
+
     try {
       setIsSubmitting(true)
 
-      const response = await fetch("/api/orders", {
+      const response = await fetch("/api/payment", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -165,17 +170,15 @@ export default function CheckoutPage() {
 
       const payload = await response.json()
 
-      if (!response.ok || !payload?.order) {
-        setSubmitError(payload?.message || "Failed to create order.")
+      if (!response.ok || !payload?.redirect_url) {
+        setSubmitError(payload?.message || "Failed to initialize payment.")
         return
       }
 
       clearCart()
-      router.push(
-        `/checkout/success?orderNumber=${encodeURIComponent(payload.order.orderNumber)}&total=${payload.order.total}`,
-      )
+      window.location.href = payload.redirect_url
     } catch {
-      setSubmitError("Failed to create order. Please try again.")
+      setSubmitError("Failed to initialize payment. Please try again.")
     } finally {
       setIsSubmitting(false)
     }
@@ -438,7 +441,7 @@ export default function CheckoutPage() {
               disabled={isMissingRequired || isSubmitting}
               className="h-12 w-full rounded-xl bg-white px-6 text-base text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/40 disabled:text-black/70"
             >
-              {isSubmitting ? "Saving Order..." : "Continue to Payment"}
+              {isSubmitting ? "Preparing Payment..." : "Pay Now"}
             </button>
 
             {submitError ? (

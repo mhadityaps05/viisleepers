@@ -35,11 +35,11 @@ export default async function OrdersPage() {
             <table className="min-w-full divide-y divide-white/25">
               <thead className="bg-[#264b38] text-left text-xs uppercase tracking-wider text-white">
                 <tr>
-                  <th className="px-4 py-3">Order Number</th>
+                  <th className="px-4 py-3">Order ID</th>
                   <th className="px-4 py-3">Customer Name</th>
-                  <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">Total</th>
-                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Payment Status</th>
+                  <th className="px-4 py-3">Order Status</th>
                   <th className="px-4 py-3">Created At</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
@@ -51,9 +51,9 @@ export default async function OrdersPage() {
                       {order.orderNumber}
                     </td>
                     <td className="px-4 py-3">{order.customerName}</td>
-                    <td className="px-4 py-3">{order.email}</td>
                     <td className="px-4 py-3">{formatRupiah(order.total)}</td>
                     <td className="px-4 py-3">{order.status}</td>
+                    <td className="px-4 py-3">{order.orderStatus}</td>
                     <td className="px-4 py-3">{formatDate(order.createdAt)}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end">

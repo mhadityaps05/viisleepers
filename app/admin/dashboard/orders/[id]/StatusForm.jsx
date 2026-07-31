@@ -4,15 +4,23 @@ import { useState } from "react"
 
 const ORDER_STATUSES = [
   "Pending",
-  "Paid",
   "Processing",
-  "Shipped",
-  "Completed",
+  "Shipping",
+  "Delivered",
   "Cancelled",
 ]
 
-export default function StatusForm({ initialStatus, orderId }) {
-  const [status, setStatus] = useState(initialStatus)
+export default function StatusForm({
+  initialOrderStatus,
+  initialCourier,
+  initialTrackingNumber,
+  orderId,
+}) {
+  const [orderStatus, setOrderStatus] = useState(initialOrderStatus)
+  const [courier, setCourier] = useState(initialCourier || "")
+  const [trackingNumber, setTrackingNumber] = useState(
+    initialTrackingNumber || "",
+  )
   const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
   const [successMessage, setSuccessMessage] = useState("")
@@ -30,7 +38,11 @@ export default function StatusForm({ initialStatus, orderId }) {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          orderStatus,
+          courier,
+          trackingNumber,
+        }),
       })
 
       const payload = await response.json()
@@ -40,7 +52,7 @@ export default function StatusForm({ initialStatus, orderId }) {
         return
       }
 
-      setSuccessMessage("Status updated successfully.")
+      setSuccessMessage("Order status updated successfully.")
     } catch {
       setErrorMessage("Failed to update order status.")
     } finally {
@@ -48,15 +60,17 @@ export default function StatusForm({ initialStatus, orderId }) {
     }
   }
 
+  const isShipping = orderStatus === "Shipping"
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <label className="block text-sm text-white/90" htmlFor="order-status">
-        Status
+        Order Status
       </label>
       <select
         id="order-status"
-        value={status}
-        onChange={(event) => setStatus(event.target.value)}
+        value={orderStatus}
+        onChange={(event) => setOrderStatus(event.target.value)}
         disabled={isSaving}
         className="h-10 w-full rounded-md border border-white/40 bg-[#2f5a44] px-3 text-white outline-none"
       >
@@ -66,6 +80,44 @@ export default function StatusForm({ initialStatus, orderId }) {
           </option>
         ))}
       </select>
+
+      {isShipping ? (
+        <>
+          <div>
+            <label
+              className="mb-2 block text-sm text-white/90"
+              htmlFor="courier"
+            >
+              Courier
+            </label>
+            <input
+              id="courier"
+              type="text"
+              value={courier}
+              onChange={(event) => setCourier(event.target.value)}
+              disabled={isSaving}
+              className="h-10 w-full rounded-md border border-white/40 bg-[#2f5a44] px-3 text-white outline-none"
+            />
+          </div>
+
+          <div>
+            <label
+              className="mb-2 block text-sm text-white/90"
+              htmlFor="tracking-number"
+            >
+              Tracking Number
+            </label>
+            <input
+              id="tracking-number"
+              type="text"
+              value={trackingNumber}
+              onChange={(event) => setTrackingNumber(event.target.value)}
+              disabled={isSaving}
+              className="h-10 w-full rounded-md border border-white/40 bg-[#2f5a44] px-3 text-white outline-none"
+            />
+          </div>
+        </>
+      ) : null}
 
       <button
         type="submit"

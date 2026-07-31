@@ -69,11 +69,12 @@ export default async function OrderDetailPage({ params }) {
           <div className="rounded-xl border border-white/50 bg-[#2f5a44] p-6 shadow-xl">
             <div className="grid gap-2 text-sm md:grid-cols-3 md:text-base">
               <p>
-                <span className="text-white/80">Order Number:</span>{" "}
+                <span className="text-white/80">Order ID:</span>{" "}
                 {order.orderNumber}
               </p>
               <p>
-                <span className="text-white/80">Status:</span> {order.status}
+                <span className="text-white/80">Payment Status:</span>{" "}
+                {order.status}
               </p>
               <p>
                 <span className="text-white/80">Created Date:</span>{" "}
@@ -188,8 +189,19 @@ export default async function OrderDetailPage({ params }) {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/50 bg-[#2f5a44] p-6 shadow-xl">
-            <StatusForm initialStatus={order.status} orderId={order.id} />
+          <div className="rounded-xl border border-white/50 bg-[#2f5a44] p-6 shadow-xl space-y-3">
+            <h2 className="text-xl font-semibold">Order Management</h2>
+            <p>
+              <span className="text-white/80">Payment Status:</span>{" "}
+              {order.status}
+            </p>
+
+            <StatusForm
+              initialOrderStatus={order.orderStatus}
+              initialCourier={order.courier}
+              initialTrackingNumber={order.trackingNumber}
+              orderId={order.id}
+            />
           </div>
         </div>
       </div>
