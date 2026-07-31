@@ -1,6 +1,7 @@
 import crypto from "node:crypto"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { sendPaymentSuccessEmail } from "@/lib/order-status-email"
 
 export const runtime = "nodejs"
 
@@ -131,7 +132,17 @@ export async function POST(request) {
 
     const order = await prisma.order.findUnique({
       where: { orderNumber: orderId },
-      include: { orderItems: true },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
     })
 
     if (!order) {
@@ -139,31 +150,73 @@ export async function POST(request) {
     }
 
     // 2) Update status atomically and reduce stock once when payment is confirmed.
-    await prisma.$transaction(async (tx) => {
-      const latest = await tx.order.findUnique({
-        where: { id: order.id },
-        include: { orderItems: true },
-      })
+    const shouldSendPaymentSuccessEmail = await prisma.$transaction(
+      async (tx) => {
+        const latest = await tx.order.findUnique({
+          where: { id: order.id },
+          include: { orderItems: true },
+        })
 
-      if (!latest) {
-        throw new Error("Order not found during transaction update.")
+        if (!latest) {
+          throw new Error("Order not found during transaction update.")
+        }
+
+        if (nextStatus === "Paid") {
+          const becamePaid = await tx.order.updateMany({
+            where: {
+              id: latest.id,
+              status: {
+                not: "Paid",
+              },
+            },
+            data: { status: "Paid" },
+          })
+
+          if (becamePaid.count === 1) {
+            await reduceStockForOrder(tx, latest.orderItems)
+            return true
+          }
+
+          return false
+        }
+
+        // Keep order management fields independent; update payment status only.
+        await tx.order.update({
+          where: { id: latest.id },
+          data: { status: nextStatus },
+        })
+
+        return false
+      },
+    )
+
+    // Send only one confirmation email for the first transition to Paid.
+    if (shouldSendPaymentSuccessEmail) {
+      const productNames = order.orderItems
+        .map((item) => item?.product?.name)
+        .filter((name) => typeof name === "string" && name.trim().length > 0)
+
+      const totalQuantity = order.orderItems.reduce(
+        (sum, item) => sum + Number(item.quantity || 0),
+        0,
+      )
+
+      try {
+        await sendPaymentSuccessEmail({
+          customerEmail: order.email,
+          customerName: order.customerName,
+          orderNumber: order.orderNumber,
+          productNames,
+          quantity: totalQuantity,
+          total: order.total,
+          createdAt: order.createdAt,
+          paymentStatus: "Paid",
+          orderStatus: "Pending",
+        })
+      } catch {
+        // Keep webhook idempotent and successful even when email fails.
       }
-
-      // Reduce stock only on the first successful payment confirmation.
-      const isMovingToPaid =
-        nextStatus === "Paid" &&
-        !STOCK_ALREADY_REDUCED_STATUSES.has(latest.status)
-
-      if (isMovingToPaid) {
-        await reduceStockForOrder(tx, latest.orderItems)
-      }
-
-      // Keep order management fields independent; update payment status only.
-      await tx.order.update({
-        where: { id: latest.id },
-        data: { status: nextStatus },
-      })
-    })
+    }
 
     return NextResponse.json({ message: "Notification processed." })
   } catch (error) {
