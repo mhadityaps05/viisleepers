@@ -1,6 +1,37 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+const PAGE_SIZE = 10
+
+const PAYMENT_STATUSES = new Set([
+  "Pending",
+  "Paid",
+  "Failed",
+  "Expired",
+  "Cancelled",
+  "Refunded",
+])
+
+const ORDER_STATUSES = new Set([
+  "Pending",
+  "Processing",
+  "Shipping",
+  "Delivered",
+  "Cancelled",
+])
+
+const SORT_OPTIONS = new Set(["newest", "oldest"])
+
+function toPositiveInt(value, fallback = 1) {
+  const parsed = Number(value)
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return fallback
+  }
+
+  return parsed
+}
+
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0
 }
@@ -54,6 +85,92 @@ async function generateUniqueOrderNumber() {
   }
 
   throw new Error("Failed to generate unique order number.")
+}
+
+export async function GET(request) {
+  try {
+    const searchParams = request.nextUrl.searchParams
+
+    const q = String(searchParams.get("q") || "").trim()
+    const payment = String(searchParams.get("payment") || "All").trim()
+    const order = String(searchParams.get("order") || "All").trim()
+    const sort = String(searchParams.get("sort") || "newest").trim()
+    const requestedPage = toPositiveInt(searchParams.get("page"), 1)
+
+    const normalizedPayment = PAYMENT_STATUSES.has(payment) ? payment : "All"
+    const normalizedOrder = ORDER_STATUSES.has(order) ? order : "All"
+    const normalizedSort = SORT_OPTIONS.has(sort) ? sort : "newest"
+
+    const whereClauses = []
+
+    if (q) {
+      whereClauses.push({
+        OR: [
+          { orderNumber: { contains: q, mode: "insensitive" } },
+          { customerName: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      })
+    }
+
+    if (normalizedPayment !== "All") {
+      whereClauses.push({ status: normalizedPayment })
+    }
+
+    if (normalizedOrder !== "All") {
+      whereClauses.push({ orderStatus: normalizedOrder })
+    }
+
+    const where = whereClauses.length > 0 ? { AND: whereClauses } : {}
+    const totalCount = await prisma.order.count({ where })
+    const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+    const currentPage = Math.min(requestedPage, totalPages)
+
+    const orders = await prisma.order.findMany({
+      where,
+      orderBy: { createdAt: normalizedSort === "oldest" ? "asc" : "desc" },
+      skip: (currentPage - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      select: {
+        id: true,
+        orderNumber: true,
+        customerName: true,
+        total: true,
+        status: true,
+        orderStatus: true,
+        createdAt: true,
+      },
+    })
+
+    const startItem = totalCount === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+    const endItem = totalCount === 0 ? 0 : startItem + orders.length - 1
+
+    return NextResponse.json(
+      {
+        orders,
+        meta: {
+          totalCount,
+          totalPages,
+          currentPage,
+          startItem,
+          endItem,
+          pageSize: PAGE_SIZE,
+          filters: {
+            q,
+            payment: normalizedPayment,
+            order: normalizedOrder,
+            sort: normalizedSort,
+          },
+        },
+      },
+      { status: 200 },
+    )
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch orders."
+
+    return NextResponse.json({ message }, { status: 500 })
+  }
 }
 
 export async function POST(request) {
