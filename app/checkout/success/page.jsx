@@ -1,21 +1,7 @@
 import Link from "next/link"
 import Navbar from "@/app/component/navbar/page"
 
-function formatRupiah(value) {
-  const normalized = Number(value)
-  if (!Number.isFinite(normalized)) {
-    return "Rp.0"
-  }
-
-  return `Rp.${normalized.toLocaleString("id-ID")}`
-}
-
 export default async function CheckoutSuccessPage({ searchParams }) {
-  const params = await searchParams
-  const orderNumber =
-    typeof params?.orderNumber === "string" ? params.orderNumber : "-"
-  const total = typeof params?.total === "string" ? params.total : "0"
-
   return (
     <div className="w-full bg-black relative z-10 p-10 font-benguiat overflow-hidden min-h-screen text-white">
       <Navbar />
@@ -26,11 +12,8 @@ export default async function CheckoutSuccessPage({ searchParams }) {
 
           <div className="space-y-3 text-lg">
             <p>
-              Order Number: <span className="text-white/80">{orderNumber}</span>
-            </p>
-            <p>
-              Total:{" "}
-              <span className="text-white/80">{formatRupiah(total)}</span>
+              Your order has been successfully placed. Check your Email for the
+              confirmation.
             </p>
           </div>
 
