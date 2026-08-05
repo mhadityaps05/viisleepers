@@ -1,13 +1,9 @@
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
-import DeleteSubscriberButton from "./DeleteSubscriberButton"
+import ReturnStatusForm from "./ReturnStatusForm"
 
-const PAGE_SIZE = 12
-
-const SORT_OPTIONS = {
-  newest: "Newest First",
-  oldest: "Oldest First",
-}
+const PAGE_SIZE = 10
+const STATUS_OPTIONS = ["All", "Pending", "Approved", "Rejected", "Completed"]
 
 function toPositiveInt(value, fallback = 1) {
   const parsed = Number(value)
@@ -26,15 +22,15 @@ function formatDate(value) {
   }).format(value)
 }
 
-function buildCustomersUrl(filters) {
+function buildReturnsUrl(filters) {
   const params = new URLSearchParams()
 
   if (filters.q) {
     params.set("q", filters.q)
   }
 
-  if (filters.sort && filters.sort !== "newest") {
-    params.set("sort", filters.sort)
+  if (filters.status && filters.status !== "All") {
+    params.set("status", filters.status)
   }
 
   if (filters.page && Number(filters.page) > 1) {
@@ -43,56 +39,67 @@ function buildCustomersUrl(filters) {
 
   const query = params.toString()
   return query
-    ? `/admin/dashboard/customers?${query}`
-    : "/admin/dashboard/customers"
+    ? `/admin/dashboard/returns?${query}`
+    : "/admin/dashboard/returns"
 }
 
-export default async function CustomersPage({ searchParams }) {
+export default async function ReturnsPage({ searchParams }) {
   const params = await searchParams
 
   const q = typeof params?.q === "string" ? params.q.trim() : ""
-  const sort =
-    typeof params?.sort === "string" && Object.hasOwn(SORT_OPTIONS, params.sort)
-      ? params.sort
-      : "newest"
+  const status =
+    typeof params?.status === "string" && STATUS_OPTIONS.includes(params.status)
+      ? params.status
+      : "All"
   const requestedPage = toPositiveInt(params?.page, 1)
 
-  const where = q
-    ? {
-        email: {
-          contains: q,
-          mode: "insensitive",
-        },
-      }
-    : {}
+  const whereClauses = []
 
-  const totalCount = await prisma.newsletterSubscriber.count({ where })
+  if (q) {
+    whereClauses.push({
+      OR: [
+        { email: { contains: q, mode: "insensitive" } },
+        { orderNumber: { contains: q, mode: "insensitive" } },
+      ],
+    })
+  }
+
+  if (status !== "All") {
+    whereClauses.push({ status })
+  }
+
+  const where = whereClauses.length > 0 ? { AND: whereClauses } : {}
+
+  const totalCount = await prisma.returnRequest.count({ where })
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const currentPage = Math.min(requestedPage, totalPages)
 
-  const subscribers = await prisma.newsletterSubscriber.findMany({
+  const returnRequests = await prisma.returnRequest.findMany({
     where,
-    orderBy: { subscribedAt: sort === "oldest" ? "asc" : "desc" },
+    orderBy: { createdAt: "desc" },
     skip: (currentPage - 1) * PAGE_SIZE,
     take: PAGE_SIZE,
     select: {
       id: true,
       email: true,
-      subscribedAt: true,
+      orderNumber: true,
+      orderItems: true,
+      status: true,
+      createdAt: true,
     },
   })
 
-  const hasFilters = q || sort !== "newest"
+  const hasFilters = q || status !== "All"
 
   return (
     <section className="space-y-6 text-white">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-bold">Newsletter Subscribers</h1>
+        <h1 className="text-3xl font-bold">Return Requests</h1>
       </div>
 
       <div className="rounded-xl border border-white/50 bg-[#2f5a44] p-4 shadow-xl md:p-5">
         <form
-          action="/admin/dashboard/customers"
+          action="/admin/dashboard/returns"
           method="GET"
           className="flex flex-col gap-3 lg:flex-row lg:items-center"
         >
@@ -100,18 +107,18 @@ export default async function CustomersPage({ searchParams }) {
             type="text"
             name="q"
             defaultValue={q}
-            placeholder="Search email"
+            placeholder="Search by email or order number"
             className="h-10 w-full rounded-md border border-white/40 bg-[#264b38] px-3 text-sm text-white placeholder:text-white/60 outline-none focus:border-white lg:flex-1"
           />
 
           <select
-            name="sort"
-            defaultValue={sort}
+            name="status"
+            defaultValue={status}
             className="h-10 w-full rounded-md border border-white/40 bg-[#264b38] px-3 text-sm text-white outline-none focus:border-white lg:w-40"
           >
-            {Object.entries(SORT_OPTIONS).map(([value, label]) => (
-              <option key={value} value={value} className="text-black">
-                {label}
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option} value={option} className="text-black">
+                {option === "All" ? "Status: All" : option}
               </option>
             ))}
           </select>
@@ -127,7 +134,7 @@ export default async function CustomersPage({ searchParams }) {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {hasFilters ? (
             <Link
-              href="/admin/dashboard/customers"
+              href="/admin/dashboard/returns"
               className="ml-auto inline-flex items-center rounded-md border border-white/40 px-3 py-1 text-xs text-white transition hover:border-white"
             >
               Clear Filters
@@ -137,9 +144,9 @@ export default async function CustomersPage({ searchParams }) {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-white/50 bg-[#2f5a44] shadow-xl">
-        {subscribers.length === 0 ? (
+        {returnRequests.length === 0 ? (
           <div className="p-6 text-sm text-white/80">
-            No newsletter subscribers found.
+            No return requests found.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -147,23 +154,27 @@ export default async function CustomersPage({ searchParams }) {
               <thead className="bg-[#264b38] text-left text-xs uppercase tracking-wider text-white">
                 <tr>
                   <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Subscription Date</th>
-                  <th className="px-4 py-3 text-right">Action</th>
+                  <th className="px-4 py-3">Order Number</th>
+                  <th className="px-4 py-3">Order Items</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Created Date</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/15 bg-white text-sm text-black">
-                {subscribers.map((subscriber) => (
-                  <tr key={subscriber.id}>
-                    <td className="px-4 py-3 font-semibold">
-                      {subscriber.email}
-                    </td>
+                {returnRequests.map((request) => (
+                  <tr key={request.id}>
+                    <td className="px-4 py-3 font-semibold">{request.email}</td>
+                    <td className="px-4 py-3">{request.orderNumber}</td>
+                    <td className="max-w-xs px-4 py-3">{request.orderItems}</td>
+                    <td className="px-4 py-3">{request.status}</td>
                     <td className="px-4 py-3">
-                      {formatDate(subscriber.subscribedAt)}
+                      {formatDate(request.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <DeleteSubscriberButton
-                        id={subscriber.id}
-                        email={subscriber.email}
+                      <ReturnStatusForm
+                        id={request.id}
+                        initialStatus={request.status}
                       />
                     </td>
                   </tr>
@@ -181,7 +192,7 @@ export default async function CustomersPage({ searchParams }) {
 
         <div className="flex items-center gap-2">
           <Link
-            href={buildCustomersUrl({ q, sort, page: currentPage - 1 })}
+            href={buildReturnsUrl({ q, status, page: currentPage - 1 })}
             className={`rounded border px-3 py-1 transition ${
               currentPage <= 1
                 ? "pointer-events-none border-white/20 text-white/40"
@@ -191,7 +202,7 @@ export default async function CustomersPage({ searchParams }) {
             Previous
           </Link>
           <Link
-            href={buildCustomersUrl({ q, sort, page: currentPage + 1 })}
+            href={buildReturnsUrl({ q, status, page: currentPage + 1 })}
             className={`rounded border px-3 py-1 transition ${
               currentPage >= totalPages
                 ? "pointer-events-none border-white/20 text-white/40"

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { snap } from "@/lib/midtrans"
+import {
+  buildOrderNumberFromAttemptId,
+  isValidCheckoutAttemptId,
+} from "@/lib/checkout-payment"
 
 export const runtime = "nodejs"
 
@@ -43,23 +47,6 @@ function sanitizeOrderItems(items) {
   return sanitized
 }
 
-async function generateUniqueOrderNumber() {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const candidate = `VSS-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
-
-    const existing = await prisma.order.findUnique({
-      where: { orderNumber: candidate },
-      select: { id: true },
-    })
-
-    if (!existing) {
-      return candidate
-    }
-  }
-
-  throw new Error("Failed to generate unique order number.")
-}
-
 function buildSnapItemDetails(cartItems, shippingFee) {
   const productItems = cartItems.map((item) => ({
     id: item.productId,
@@ -80,10 +67,49 @@ function buildSnapItemDetails(cartItems, shippingFee) {
   return productItems
 }
 
+async function getStockConflicts(cartItems) {
+  const productIds = [...new Set(cartItems.map((item) => item.productId))]
+
+  const products = await prisma.product.findMany({
+    where: {
+      id: {
+        in: productIds,
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      stock: true,
+    },
+  })
+
+  const productsById = new Map(products.map((product) => [product.id, product]))
+
+  return cartItems.flatMap((item) => {
+    const product = productsById.get(item.productId)
+    const availableStock = product?.stock ?? 0
+
+    if (availableStock >= item.quantity) {
+      return []
+    }
+
+    return [
+      {
+        productId: item.productId,
+        productName: product?.name || item.name || "Unavailable Product",
+        availableStock,
+        requestedQuantity: item.quantity,
+      },
+    ]
+  })
+}
+
 export async function POST(request) {
   try {
     // 1) Read and normalize incoming checkout payload.
     const body = await request.json()
+    const attemptId =
+      typeof body?.attemptId === "string" ? body.attemptId.trim() : ""
 
     const customerInformation = body?.customerInformation ?? {}
     const shippingAddress = body?.shippingAddress ?? {}
@@ -102,6 +128,13 @@ export async function POST(request) {
     const subtotal = Number(totals?.subtotal)
     const shippingFee = Number(totals?.shippingFee)
     const total = Number(totals?.total)
+
+    if (!isValidCheckoutAttemptId(attemptId)) {
+      return NextResponse.json(
+        { message: "Invalid checkout attempt." },
+        { status: 400 },
+      )
+    }
 
     if (
       !isNonEmptyString(customerName) ||
@@ -148,76 +181,222 @@ export async function POST(request) {
       )
     }
 
-    // 2) Generate app order number used as Midtrans order_id.
-    const orderNumber = await generateUniqueOrderNumber()
+    // 2) Derive a deterministic order number so refreshes and retries reuse the same order.
+    const orderNumber = buildOrderNumberFromAttemptId(attemptId)
 
-    // Save order before requesting Snap token so webhook can update by order number.
-    await prisma.$transaction(async (tx) => {
-      const order = await tx.order.create({
-        data: {
+    const existingOrder = await prisma.order.findUnique({
+      where: { orderNumber },
+      select: {
+        id: true,
+        customerName: true,
+        email: true,
+        phone: true,
+        province: true,
+        city: true,
+        postalCode: true,
+        address: true,
+        subtotal: true,
+        shippingFee: true,
+        total: true,
+        paymentSessionStatus: true,
+        midtransToken: true,
+        midtransRedirectUrl: true,
+        orderItems: {
+          select: {
+            productId: true,
+            quantity: true,
+            size: true,
+            priceAtPurchase: true,
+          },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    })
+
+    if (existingOrder?.midtransRedirectUrl && existingOrder?.midtransToken) {
+      return NextResponse.json(
+        {
+          token: existingOrder.midtransToken,
+          redirect_url: existingOrder.midtransRedirectUrl,
+        },
+        { status: 200 },
+      )
+    }
+
+    if (existingOrder) {
+      const hasSameCustomerData =
+        existingOrder.customerName === customerName.trim() &&
+        existingOrder.email === email.trim() &&
+        existingOrder.phone === phone.trim() &&
+        existingOrder.province === province.trim() &&
+        existingOrder.city === city.trim() &&
+        existingOrder.postalCode === postalCode.trim() &&
+        existingOrder.address === address.trim() &&
+        existingOrder.subtotal === subtotal &&
+        existingOrder.shippingFee === shippingFee &&
+        existingOrder.total === total
+
+      const hasSameItems =
+        existingOrder.orderItems.length === cartItems.length &&
+        existingOrder.orderItems.every((item, index) => {
+          const candidate = cartItems[index]
+
+          return (
+            item.productId === candidate.productId &&
+            item.quantity === candidate.quantity &&
+            item.size === candidate.size &&
+            item.priceAtPurchase === candidate.price
+          )
+        })
+
+      if (!hasSameCustomerData || !hasSameItems) {
+        return NextResponse.json(
+          {
+            message:
+              "This payment session no longer matches your checkout details. Please return to checkout and try again.",
+          },
+          { status: 409 },
+        )
+      }
+
+      if (existingOrder.paymentSessionStatus === "PREPARING") {
+        return NextResponse.json(
+          { message: "Payment session is still being prepared." },
+          { status: 202 },
+        )
+      }
+    }
+
+    const stockConflicts = await getStockConflicts(cartItems)
+
+    if (stockConflicts.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Some products are no longer available in the requested quantity.",
+          items: stockConflicts,
+        },
+        { status: 409 },
+      )
+    }
+
+    let orderRecord = existingOrder
+
+    if (!orderRecord) {
+      orderRecord = await prisma.$transaction(async (tx) => {
+        const order = await tx.order.create({
+          data: {
+            orderNumber,
+            customerName: customerName.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+            province: province.trim(),
+            city: city.trim(),
+            postalCode: postalCode.trim(),
+            address: address.trim(),
+            subtotal,
+            shippingFee,
+            total,
+            status: "Pending",
+            paymentSessionStatus: "PREPARING",
+          },
+          select: {
+            id: true,
+            orderNumber: true,
+          },
+        })
+
+        await tx.orderItem.createMany({
+          data: cartItems.map((item) => ({
+            orderId: order.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            size: item.size,
+            priceAtPurchase: item.price,
+          })),
+        })
+
+        return order
+      })
+    } else {
+      const preparingOrder = await prisma.order.updateMany({
+        where: {
           orderNumber,
-          customerName: customerName.trim(),
+          paymentSessionStatus: {
+            in: ["NOT_STARTED", "FAILED"],
+          },
+        },
+        data: {
+          paymentSessionStatus: "PREPARING",
+        },
+      })
+
+      if (preparingOrder.count === 0) {
+        return NextResponse.json(
+          { message: "Payment session is still being prepared." },
+          { status: 202 },
+        )
+      }
+    }
+
+    try {
+      // 3) Request Snap token from Midtrans using trusted server credentials.
+      const transaction = await snap.createTransaction({
+        transaction_details: {
+          order_id: orderNumber,
+          gross_amount: total,
+        },
+        item_details: buildSnapItemDetails(cartItems, shippingFee),
+        customer_details: {
+          first_name: customerName.trim(),
           email: email.trim(),
           phone: phone.trim(),
-          province: province.trim(),
-          city: city.trim(),
-          postalCode: postalCode.trim(),
-          address: address.trim(),
-          subtotal,
-          shippingFee,
-          total,
-          status: "Pending",
+          billing_address: {
+            first_name: customerName.trim(),
+            phone: phone.trim(),
+            address: address.trim(),
+            city: city.trim(),
+            postal_code: postalCode.trim(),
+            country_code: "IDN",
+          },
+          shipping_address: {
+            first_name: customerName.trim(),
+            phone: phone.trim(),
+            address: address.trim(),
+            city: city.trim(),
+            postal_code: postalCode.trim(),
+            country_code: "IDN",
+          },
         },
       })
 
-      await tx.orderItem.createMany({
-        data: cartItems.map((item) => ({
-          orderId: order.id,
-          productId: item.productId,
-          quantity: item.quantity,
-          size: item.size,
-          priceAtPurchase: item.price,
-        })),
+      await prisma.order.update({
+        where: { orderNumber },
+        data: {
+          paymentSessionStatus: "READY",
+          midtransToken: transaction.token,
+          midtransRedirectUrl: transaction.redirect_url,
+        },
       })
-    })
 
-    // 3) Request Snap token from Midtrans using trusted server credentials.
-    const transaction = await snap.createTransaction({
-      transaction_details: {
-        order_id: orderNumber,
-        gross_amount: total,
-      },
-      item_details: buildSnapItemDetails(cartItems, shippingFee),
-      customer_details: {
-        first_name: customerName.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        billing_address: {
-          first_name: customerName.trim(),
-          phone: phone.trim(),
-          address: address.trim(),
-          city: city.trim(),
-          postal_code: postalCode.trim(),
-          country_code: "IDN",
+      return NextResponse.json(
+        {
+          token: transaction.token,
+          redirect_url: transaction.redirect_url,
         },
-        shipping_address: {
-          first_name: customerName.trim(),
-          phone: phone.trim(),
-          address: address.trim(),
-          city: city.trim(),
-          postal_code: postalCode.trim(),
-          country_code: "IDN",
+        { status: existingOrder ? 200 : 201 },
+      )
+    } catch (error) {
+      await prisma.order.update({
+        where: { orderNumber },
+        data: {
+          paymentSessionStatus: "FAILED",
         },
-      },
-    })
+      })
 
-    return NextResponse.json(
-      {
-        token: transaction.token,
-        redirect_url: transaction.redirect_url,
-      },
-      { status: 201 },
-    )
+      throw error
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to initialize payment."

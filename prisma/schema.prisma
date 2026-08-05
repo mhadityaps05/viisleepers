@@ -41,6 +41,9 @@ model Order {
   subtotal     Int
   shippingFee  Int
   total        Int
+  paymentSessionStatus String @default("NOT_STARTED")
+  midtransToken String?
+  midtransRedirectUrl String?
   status       String      @default("Pending")
   orderStatus  String      @default("Pending")
   courier      String?
@@ -64,4 +67,29 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+model NewsletterSubscriber {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  subscribedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([subscribedAt])
+}
+
+model ReturnRequest {
+  id          String   @id @default(cuid())
+  email       String
+  orderNumber String
+  orderItems  String
+  status      String   @default("Pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([email])
+  @@index([orderNumber])
+  @@index([status])
+  @@index([createdAt])
 }

@@ -1,9 +1,15 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import Navbar from "@/app/component/navbar/page"
 import { useCart } from "@/lib/CartContext"
+import {
+  CHECKOUT_DRAFT_STORAGE_KEY,
+  createCheckoutAttemptId,
+  getPaymentAttemptStorageKey,
+} from "@/lib/checkout-payment"
 
 const initialForm = {
   name: "",
@@ -26,13 +32,69 @@ const REQUIRED_FIELDS = [
 ]
 
 const fieldLabels = {
-  name: "Name",
+  name: "Full Name",
   email: "Email",
   phone: "Phone Number",
-  province: "Province / State",
+  province: "Province",
   city: "City",
   postalCode: "Postal Code",
-  fullAddress: "Full Address",
+  fullAddress: "Address",
+}
+
+const fieldErrorMessages = {
+  name: {
+    required: "Please enter your full name.",
+  },
+  email: {
+    required: "Please enter your email.",
+    invalid: "Please enter a valid email address.",
+  },
+  phone: {
+    required: "Please enter your phone number.",
+    invalid: "Phone number must contain numbers only.",
+    short: "Phone number must be at least 10 digits.",
+  },
+  province: {
+    required: "Please enter your province.",
+  },
+  city: {
+    required: "Please enter your city.",
+  },
+  postalCode: {
+    required: "Please enter your postal code.",
+    invalid: "Postal code must contain numbers only.",
+  },
+  fullAddress: {
+    required: "Please enter your address.",
+  },
+}
+
+function getInitialFormData() {
+  if (typeof window === "undefined") {
+    return initialForm
+  }
+
+  try {
+    const storedDraft = sessionStorage.getItem(CHECKOUT_DRAFT_STORAGE_KEY)
+
+    if (!storedDraft) {
+      return initialForm
+    }
+
+    const parsedDraft = JSON.parse(storedDraft)
+    const nextFormData = parsedDraft?.formData
+
+    if (!nextFormData || typeof nextFormData !== "object") {
+      return initialForm
+    }
+
+    return {
+      ...initialForm,
+      ...nextFormData,
+    }
+  } catch {
+    return initialForm
+  }
 }
 
 function formatRupiah(value) {
@@ -48,31 +110,104 @@ function getSelectedSize(item) {
 }
 
 export default function CheckoutPage() {
-  const { cartItems, cartTotal, clearCart } = useCart()
-  const [formData, setFormData] = useState(initialForm)
+  const { cartItems, cartTotal } = useCart()
+  const router = useRouter()
+  const [formData, setFormData] = useState(getInitialFormData)
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState("")
+  const [toast, setToast] = useState(null)
+  const fieldRefs = useRef({})
+  const toastTimerRef = useRef(null)
 
   const midtransClientKey = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || ""
 
-  const isMissingRequired = useMemo(
-    () =>
-      REQUIRED_FIELDS.some((field) => !String(formData[field] ?? "").trim()),
-    [formData],
-  )
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current)
+      }
+    }
+  }, [])
+
+  const showToast = (title, description) => {
+    setToast({
+      id: Date.now(),
+      title,
+      description,
+    })
+
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+    }
+
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null)
+    }, 5000)
+  }
+
+  const focusFirstInvalidField = (nextErrors) => {
+    const firstInvalidField = REQUIRED_FIELDS.find((field) => nextErrors[field])
+
+    if (!firstInvalidField) {
+      return
+    }
+
+    const element = fieldRefs.current[firstInvalidField]
+
+    if (!element) {
+      return
+    }
+
+    element.focus({ preventScroll: true })
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    })
+  }
+
+  const getFieldClassName = (fieldName) =>
+    `h-12 w-full rounded-xl border bg-black px-4 text-white outline-none transition ${
+      errors[fieldName]
+        ? "border-red-500 focus:border-red-500"
+        : "border-white/30 focus:border-white"
+    }`
+
+  const getTextareaClassName = (fieldName) =>
+    `w-full rounded-xl border bg-black px-4 py-3 text-white outline-none transition ${
+      errors[fieldName]
+        ? "border-red-500 focus:border-red-500"
+        : "border-white/30 focus:border-white"
+    }`
 
   const validateField = (name, value) => {
     const trimmed = String(value ?? "").trim()
+    const messages = fieldErrorMessages[name]
 
     if (!trimmed) {
-      return `${fieldLabels[name]} is required.`
+      return messages?.required || `${fieldLabels[name]} is required.`
     }
 
     if (name === "email") {
       const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       if (!emailPattern.test(trimmed)) {
-        return "Please enter a valid email address."
+        return messages.invalid
+      }
+    }
+
+    if (name === "phone") {
+      if (!/^\d+$/.test(trimmed)) {
+        return messages.invalid
+      }
+
+      if (trimmed.length < 10) {
+        return messages.short
+      }
+    }
+
+    if (name === "postalCode") {
+      if (!/^\d+$/.test(trimmed)) {
+        return messages.invalid
       }
     }
 
@@ -90,6 +225,11 @@ export default function CheckoutPage() {
     }
 
     setErrors(nextErrors)
+
+    if (Object.keys(nextErrors).length > 0) {
+      focusFirstInvalidField(nextErrors)
+    }
+
     return Object.keys(nextErrors).length === 0
   }
 
@@ -123,6 +263,10 @@ export default function CheckoutPage() {
     setSubmitError("")
 
     if (!validateForm()) {
+      showToast(
+        "Incomplete Information",
+        "Please complete all required fields before continuing.",
+      )
       return
     }
 
@@ -142,6 +286,18 @@ export default function CheckoutPage() {
     const shippingFee = 0
     const subtotal = cartTotal
     const total = subtotal + shippingFee
+    const attemptId = createCheckoutAttemptId()
+    const paymentPayload = {
+      attemptId,
+      customerInformation,
+      shippingAddress,
+      cartItems,
+      totals: {
+        subtotal,
+        shippingFee,
+        total,
+      },
+    }
 
     if (!midtransClientKey) {
       setSubmitError("Midtrans client key is not configured.")
@@ -150,42 +306,40 @@ export default function CheckoutPage() {
 
     try {
       setIsSubmitting(true)
-
-      const response = await fetch("/api/payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          customerInformation,
-          shippingAddress,
-          cartItems,
-          totals: {
-            subtotal,
-            shippingFee,
-            total,
-          },
+      sessionStorage.setItem(
+        CHECKOUT_DRAFT_STORAGE_KEY,
+        JSON.stringify({
+          formData,
+          attemptId,
         }),
+      )
+      sessionStorage.setItem(
+        getPaymentAttemptStorageKey(attemptId),
+        JSON.stringify({
+          ...paymentPayload,
+          status: "pending",
+          createdAt: Date.now(),
+        }),
+      )
+
+      router.replace(`/checkout/preparing?attempt=${attemptId}`, {
+        scroll: false,
       })
-
-      const payload = await response.json()
-
-      if (!response.ok || !payload?.redirect_url) {
-        setSubmitError(payload?.message || "Failed to initialize payment.")
-        return
-      }
-
-      clearCart()
-      window.location.href = payload.redirect_url
     } catch {
-      setSubmitError("Failed to initialize payment. Please try again.")
-    } finally {
       setIsSubmitting(false)
+      setSubmitError("Failed to prepare payment. Please try again.")
     }
   }
 
   return (
     <div className="relative z-10 min-h-screen w-full bg-black font-benguiat text-white">
+      {toast ? (
+        <div className="fixed right-5 top-5 z-50 w-[min(24rem,calc(100vw-2.5rem))] rounded-xl border border-red-500/60 bg-black/95 p-4 text-white shadow-2xl backdrop-blur">
+          <p className="text-sm font-semibold">{toast.title}</p>
+          <p className="mt-1 text-sm text-white/80">{toast.description}</p>
+        </div>
+      ) : null}
+
       <Navbar />
 
       <main className="mx-auto w-full max-w-7xl px-6 pb-16 pt-28 md:px-10 lg:pb-24 lg:pt-36">
@@ -215,19 +369,25 @@ export default function CheckoutPage() {
                       htmlFor="name"
                       className="mb-2 block text-sm text-white/80"
                     >
-                      Name *
+                      Full Name *
                     </label>
                     <input
                       id="name"
                       name="name"
                       type="text"
+                      ref={(element) => {
+                        fieldRefs.current.name = element
+                      }}
                       value={formData.name}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className="h-12 w-full rounded-xl border border-white/30 bg-black px-4 text-white outline-none transition focus:border-white"
+                      autoComplete="name"
+                      aria-invalid={Boolean(errors.name)}
+                      aria-describedby={errors.name ? "name-error" : undefined}
+                      className={getFieldClassName("name")}
                     />
                     {errors.name ? (
-                      <p className="mt-2 text-sm text-white/70">
+                      <p id="name-error" className="mt-2 text-sm text-red-500">
                         {errors.name}
                       </p>
                     ) : null}
@@ -244,13 +404,21 @@ export default function CheckoutPage() {
                       id="email"
                       name="email"
                       type="email"
+                      ref={(element) => {
+                        fieldRefs.current.email = element
+                      }}
                       value={formData.email}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className="h-12 w-full rounded-xl border border-white/30 bg-black px-4 text-white outline-none transition focus:border-white"
+                      autoComplete="email"
+                      aria-invalid={Boolean(errors.email)}
+                      aria-describedby={
+                        errors.email ? "email-error" : undefined
+                      }
+                      className={getFieldClassName("email")}
                     />
                     {errors.email ? (
-                      <p className="mt-2 text-sm text-white/70">
+                      <p id="email-error" className="mt-2 text-sm text-red-500">
                         {errors.email}
                       </p>
                     ) : null}
@@ -267,13 +435,22 @@ export default function CheckoutPage() {
                       id="phone"
                       name="phone"
                       type="tel"
+                      ref={(element) => {
+                        fieldRefs.current.phone = element
+                      }}
                       value={formData.phone}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className="h-12 w-full rounded-xl border border-white/30 bg-black px-4 text-white outline-none transition focus:border-white"
+                      autoComplete="tel"
+                      inputMode="numeric"
+                      aria-invalid={Boolean(errors.phone)}
+                      aria-describedby={
+                        errors.phone ? "phone-error" : undefined
+                      }
+                      className={getFieldClassName("phone")}
                     />
                     {errors.phone ? (
-                      <p className="mt-2 text-sm text-white/70">
+                      <p id="phone-error" className="mt-2 text-sm text-red-500">
                         {errors.phone}
                       </p>
                     ) : null}
@@ -288,19 +465,30 @@ export default function CheckoutPage() {
                       htmlFor="province"
                       className="mb-2 block text-sm text-white/80"
                     >
-                      Province / State *
+                      Province *
                     </label>
                     <input
                       id="province"
                       name="province"
                       type="text"
+                      ref={(element) => {
+                        fieldRefs.current.province = element
+                      }}
                       value={formData.province}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className="h-12 w-full rounded-xl border border-white/30 bg-black px-4 text-white outline-none transition focus:border-white"
+                      autoComplete="address-level1"
+                      aria-invalid={Boolean(errors.province)}
+                      aria-describedby={
+                        errors.province ? "province-error" : undefined
+                      }
+                      className={getFieldClassName("province")}
                     />
                     {errors.province ? (
-                      <p className="mt-2 text-sm text-white/70">
+                      <p
+                        id="province-error"
+                        className="mt-2 text-sm text-red-500"
+                      >
                         {errors.province}
                       </p>
                     ) : null}
@@ -317,13 +505,19 @@ export default function CheckoutPage() {
                       id="city"
                       name="city"
                       type="text"
+                      ref={(element) => {
+                        fieldRefs.current.city = element
+                      }}
                       value={formData.city}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className="h-12 w-full rounded-xl border border-white/30 bg-black px-4 text-white outline-none transition focus:border-white"
+                      autoComplete="address-level2"
+                      aria-invalid={Boolean(errors.city)}
+                      aria-describedby={errors.city ? "city-error" : undefined}
+                      className={getFieldClassName("city")}
                     />
                     {errors.city ? (
-                      <p className="mt-2 text-sm text-white/70">
+                      <p id="city-error" className="mt-2 text-sm text-red-500">
                         {errors.city}
                       </p>
                     ) : null}
@@ -340,13 +534,25 @@ export default function CheckoutPage() {
                       id="postalCode"
                       name="postalCode"
                       type="text"
+                      ref={(element) => {
+                        fieldRefs.current.postalCode = element
+                      }}
                       value={formData.postalCode}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className="h-12 w-full rounded-xl border border-white/30 bg-black px-4 text-white outline-none transition focus:border-white"
+                      autoComplete="postal-code"
+                      inputMode="numeric"
+                      aria-invalid={Boolean(errors.postalCode)}
+                      aria-describedby={
+                        errors.postalCode ? "postalCode-error" : undefined
+                      }
+                      className={getFieldClassName("postalCode")}
                     />
                     {errors.postalCode ? (
-                      <p className="mt-2 text-sm text-white/70">
+                      <p
+                        id="postalCode-error"
+                        className="mt-2 text-sm text-red-500"
+                      >
                         {errors.postalCode}
                       </p>
                     ) : null}
@@ -357,19 +563,30 @@ export default function CheckoutPage() {
                       htmlFor="fullAddress"
                       className="mb-2 block text-sm text-white/80"
                     >
-                      Full Address *
+                      Address *
                     </label>
                     <textarea
                       id="fullAddress"
                       name="fullAddress"
+                      ref={(element) => {
+                        fieldRefs.current.fullAddress = element
+                      }}
                       value={formData.fullAddress}
                       onChange={handleChange}
                       onBlur={handleBlur}
                       rows={4}
-                      className="w-full rounded-xl border border-white/30 bg-black px-4 py-3 text-white outline-none transition focus:border-white"
+                      autoComplete="street-address"
+                      aria-invalid={Boolean(errors.fullAddress)}
+                      aria-describedby={
+                        errors.fullAddress ? "fullAddress-error" : undefined
+                      }
+                      className={getTextareaClassName("fullAddress")}
                     />
                     {errors.fullAddress ? (
-                      <p className="mt-2 text-sm text-red-500">
+                      <p
+                        id="fullAddress-error"
+                        className="mt-2 text-sm text-red-500"
+                      >
                         {errors.fullAddress}
                       </p>
                     ) : null}
@@ -438,7 +655,7 @@ export default function CheckoutPage() {
 
             <button
               type="submit"
-              disabled={isMissingRequired || isSubmitting}
+              disabled={isSubmitting}
               className="h-12 w-full rounded-xl bg-white px-6 text-base text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:bg-white/40 disabled:text-black/70"
             >
               {isSubmitting ? "Preparing Payment..." : "Pay Now"}

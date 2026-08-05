@@ -7,7 +7,8 @@ const menu = [
   { name: "Dashboard", href: "/admin/dashboard" },
   { name: "Products", href: "/admin/dashboard/products" },
   { name: "Orders", href: "/admin/dashboard/orders" },
-  { name: "Customers", href: "/admin/dashboard/customers" },
+  { name: "Returns", href: "/admin/dashboard/returns" },
+  { name: "Subscribers", href: "/admin/dashboard/customers" },
 ]
 
 export default function AdminLayout({
