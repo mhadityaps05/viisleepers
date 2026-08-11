@@ -18,6 +18,7 @@ const ORDER_STATUSES = new Set([
   "Shipping",
   "Delivered",
   "Cancelled",
+  "Return Complete",
 ])
 
 const SORT_OPTIONS = new Set(["newest", "oldest"])
@@ -136,6 +137,10 @@ export async function GET(request) {
         orderNumber: true,
         customerName: true,
         total: true,
+        shippingCourier: true,
+        shippingService: true,
+        estimatedDelivery: true,
+        destinationAreaId: true,
         status: true,
         orderStatus: true,
         createdAt: true,
@@ -179,6 +184,7 @@ export async function POST(request) {
 
     const customerInformation = body?.customerInformation ?? {}
     const shippingAddress = body?.shippingAddress ?? {}
+    const shipping = body?.shipping ?? {}
     const totals = body?.totals ?? {}
     const cartItems = sanitizeOrderItems(body?.cartItems)
 
@@ -190,6 +196,19 @@ export async function POST(request) {
     const city = shippingAddress?.city
     const postalCode = shippingAddress?.postalCode
     const address = shippingAddress?.fullAddress
+
+    const shippingCourier =
+      typeof shipping?.courier === "string" ? shipping.courier.trim() : ""
+    const shippingService =
+      typeof shipping?.service === "string" ? shipping.service.trim() : ""
+    const estimatedDelivery =
+      typeof shipping?.estimatedDelivery === "string"
+        ? shipping.estimatedDelivery.trim()
+        : ""
+    const destinationAreaId =
+      typeof shipping?.destinationAreaId === "string"
+        ? shipping.destinationAreaId.trim()
+        : ""
 
     const subtotal = Number(totals?.subtotal)
     const shippingFee = Number(totals?.shippingFee)
@@ -256,6 +275,10 @@ export async function POST(request) {
           subtotal,
           shippingFee,
           total,
+          shippingCourier: shippingCourier || null,
+          shippingService: shippingService || null,
+          estimatedDelivery: estimatedDelivery || null,
+          destinationAreaId: destinationAreaId || null,
           status: "Pending",
         },
       })

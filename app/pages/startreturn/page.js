@@ -11,6 +11,7 @@ export default function Page() {
     email: "",
     orderNumber: "",
     orderItems: "",
+    reason: "",
   })
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -23,6 +24,7 @@ export default function Page() {
     const email = formData.email.trim().toLowerCase()
     const orderNumber = formData.orderNumber.trim()
     const orderItems = formData.orderItems.trim()
+    const reason = formData.reason.trim()
 
     if (!email || !EMAIL_PATTERN.test(email)) {
       nextErrors.email = "Please enter a valid email address."
@@ -34,6 +36,10 @@ export default function Page() {
 
     if (!orderItems) {
       nextErrors.orderItems = "Please enter your order items."
+    }
+
+    if (!reason) {
+      nextErrors.reason = "Please enter your reason for return."
     }
 
     setErrors(nextErrors)
@@ -77,6 +83,7 @@ export default function Page() {
           email: formData.email.trim().toLowerCase(),
           orderNumber: formData.orderNumber.trim(),
           orderItems: formData.orderItems.trim(),
+          reason: formData.reason.trim(),
         }),
       })
 
@@ -96,6 +103,7 @@ export default function Page() {
         email: "",
         orderNumber: "",
         orderItems: "",
+        reason: "",
       })
       setErrors({})
     } catch (error) {
@@ -169,18 +177,33 @@ export default function Page() {
         </div>
 
         <div>
-          <textarea
+          <input
             name="orderItems"
             value={formData.orderItems}
             onChange={handleChange}
             placeholder="Your order items*"
-            rows={4}
             className={`w-full border-b bg-transparent py-3 focus:outline-none lg:mt-5 ${
               errors.orderItems ? "border-red-500" : "border-white/60"
             }`}
           />
           {errors.orderItems ? (
             <p className="pt-2 text-sm text-red-400">{errors.orderItems}</p>
+          ) : null}
+        </div>
+
+        <div>
+          <textarea
+            name="reason"
+            value={formData.reason}
+            onChange={handleChange}
+            placeholder="Reason for return*"
+            rows={4}
+            className={`w-full border-b bg-transparent py-3 focus:outline-none lg:mt-5 ${
+              errors.reason ? "border-red-500" : "border-white/60"
+            }`}
+          />
+          {errors.reason ? (
+            <p className="pt-2 text-sm text-red-400">{errors.reason}</p>
           ) : null}
         </div>
 

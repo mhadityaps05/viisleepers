@@ -21,6 +21,7 @@ const ORDER_STATUSES = [
   "Shipping",
   "Delivered",
   "Cancelled",
+  "Return Complete",
 ]
 
 const SORT_OPTIONS = {

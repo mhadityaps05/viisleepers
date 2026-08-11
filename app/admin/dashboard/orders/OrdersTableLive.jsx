@@ -64,10 +64,25 @@ function isSameOrderRow(a, b) {
     a.orderNumber === b.orderNumber &&
     a.customerName === b.customerName &&
     a.total === b.total &&
+    a.shippingCourier === b.shippingCourier &&
+    a.shippingService === b.shippingService &&
     a.status === b.status &&
     a.orderStatus === b.orderStatus &&
     a.createdAt === b.createdAt
   )
+}
+
+function formatCourier(order) {
+  const shippingCourier = String(
+    order?.shippingCourier || order?.courier || "",
+  ).trim()
+  const shippingService = String(order?.shippingService || "").trim()
+
+  if (!shippingCourier || !shippingService) {
+    return "-"
+  }
+
+  return `${shippingCourier} ${shippingService}`
 }
 
 function mergeOrdersWithStableRows(previousOrders, nextOrders) {
@@ -236,6 +251,7 @@ export default function OrdersTableLive({ initialData, filters }) {
                   <th className="px-4 py-3">Order ID</th>
                   <th className="px-4 py-3">Customer Name</th>
                   <th className="px-4 py-3">Total</th>
+                  <th className="px-4 py-3">Courier</th>
                   <th className="px-4 py-3">Payment Status</th>
                   <th className="px-4 py-3">Order Status</th>
                   <th className="px-4 py-3">Created At</th>
@@ -250,6 +266,7 @@ export default function OrdersTableLive({ initialData, filters }) {
                     </td>
                     <td className="px-4 py-3">{order.customerName}</td>
                     <td className="px-4 py-3">{formatRupiah(order.total)}</td>
+                    <td className="px-4 py-3">{formatCourier(order)}</td>
                     <td className="px-4 py-3">{order.status}</td>
                     <td className="px-4 py-3">{order.orderStatus}</td>
                     <td className="px-4 py-3">{formatDate(order.createdAt)}</td>

@@ -8,22 +8,44 @@ const ORDER_STATUSES = [
   "Shipping",
   "Delivered",
   "Cancelled",
+  "Return Complete",
 ]
 
+function formatRupiah(value) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0)
+}
+
+function displayValue(value) {
+  const normalized = String(value || "").trim()
+  return normalized || "-"
+}
+
 export default function StatusForm({
+  initialPaymentStatus,
   initialOrderStatus,
-  initialCourier,
+  initialShippingCourier,
+  initialShippingService,
+  initialEstimatedDelivery,
+  initialShippingFee,
   initialTrackingNumber,
   orderId,
 }) {
   const [orderStatus, setOrderStatus] = useState(initialOrderStatus)
-  const [courier, setCourier] = useState(initialCourier || "")
   const [trackingNumber, setTrackingNumber] = useState(
     initialTrackingNumber || "",
   )
   const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
   const [successMessage, setSuccessMessage] = useState("")
+
+  const shippingCourier = String(initialShippingCourier || "").trim()
+  const shippingService = String(initialShippingService || "").trim()
+  const estimatedDelivery = String(initialEstimatedDelivery || "").trim()
+  const shippingFee = Number(initialShippingFee) || 0
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -40,7 +62,6 @@ export default function StatusForm({
         },
         body: JSON.stringify({
           orderStatus,
-          courier,
           trackingNumber,
         }),
       })
@@ -64,6 +85,16 @@ export default function StatusForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <label className="block text-sm text-white/90" htmlFor="payment-status">
+        Payment Status
+      </label>
+      <p
+        id="payment-status"
+        className="inline-flex h-10 w-full items-center rounded-md border border-white/40 bg-[#2f5a44] px-3 text-white"
+      >
+        {displayValue(initialPaymentStatus)}
+      </p>
+
       <label className="block text-sm text-white/90" htmlFor="order-status">
         Order Status
       </label>
@@ -81,25 +112,32 @@ export default function StatusForm({
         ))}
       </select>
 
+      <div className="rounded-md border border-white/30 bg-[#264b38] p-4">
+        <h3 className="text-sm font-semibold text-white">
+          Shipping Information
+        </h3>
+        <div className="mt-3 space-y-2 text-sm text-white/90">
+          <p className="flex items-center justify-between gap-4">
+            <span className="text-white/70">Courier</span>
+            <span>{displayValue(shippingCourier)}</span>
+          </p>
+          <p className="flex items-center justify-between gap-4">
+            <span className="text-white/70">Service</span>
+            <span>{displayValue(shippingService)}</span>
+          </p>
+          <p className="flex items-center justify-between gap-4">
+            <span className="text-white/70">Shipping Cost</span>
+            <span>{formatRupiah(shippingFee)}</span>
+          </p>
+          <p className="flex items-center justify-between gap-4">
+            <span className="text-white/70">Estimated Delivery</span>
+            <span>{displayValue(estimatedDelivery)}</span>
+          </p>
+        </div>
+      </div>
+
       {isShipping ? (
         <>
-          <div>
-            <label
-              className="mb-2 block text-sm text-white/90"
-              htmlFor="courier"
-            >
-              Courier
-            </label>
-            <input
-              id="courier"
-              type="text"
-              value={courier}
-              onChange={(event) => setCourier(event.target.value)}
-              disabled={isSaving}
-              className="h-10 w-full rounded-md border border-white/40 bg-[#2f5a44] px-3 text-white outline-none"
-            />
-          </div>
-
           <div>
             <label
               className="mb-2 block text-sm text-white/90"

@@ -191,14 +191,14 @@ export default async function OrderDetailPage({ params }) {
 
           <div className="rounded-xl border border-white/50 bg-[#2f5a44] p-6 shadow-xl space-y-3">
             <h2 className="text-xl font-semibold">Order Management</h2>
-            <p>
-              <span className="text-white/80">Payment Status:</span>{" "}
-              {order.status}
-            </p>
 
             <StatusForm
+              initialPaymentStatus={order.status}
               initialOrderStatus={order.orderStatus}
-              initialCourier={order.courier}
+              initialShippingCourier={order.shippingCourier}
+              initialShippingService={order.shippingService}
+              initialEstimatedDelivery={order.estimatedDelivery}
+              initialShippingFee={order.shippingFee}
               initialTrackingNumber={order.trackingNumber}
               orderId={order.id}
             />

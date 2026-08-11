@@ -31,6 +31,100 @@ const REQUIRED_FIELDS = [
   "fullAddress",
 ]
 
+const COURIER_OPTIONS = ["JNE", "J&T", "SiCepat"]
+const COURIER_CODE_MAP = {
+  JNE: "jne",
+  "J&T": "jnt",
+  SiCepat: "sicepat",
+}
+
+const DEFAULT_ITEM_WEIGHT = 500
+
+function normalizeCourierCode(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+}
+
+function toServicePrice(service) {
+  const candidates = [
+    service?.price,
+    service?.amount,
+    service?.courier_price,
+    service?.cost,
+  ]
+
+  for (const value of candidates) {
+    const amount = Number(value)
+    if (Number.isFinite(amount) && amount >= 0) {
+      return amount
+    }
+  }
+
+  return null
+}
+
+function normalizeRatesResponse(payload) {
+  const pricing = Array.isArray(payload?.pricing)
+    ? payload.pricing
+    : Array.isArray(payload?.data?.pricing)
+      ? payload.data.pricing
+      : []
+
+  return pricing
+    .map((item, index) => {
+      const courierCode = normalizeCourierCode(
+        item?.courier_code || item?.courier_name || item?.courier,
+      )
+      const serviceCode = String(
+        item?.courier_service_code || item?.courier_type || item?.service || "",
+      ).trim()
+      const serviceName = String(
+        item?.courier_service_name || item?.service_name || serviceCode,
+      ).trim()
+      const price = toServicePrice(item)
+      const etd = String(
+        item?.courier_duration || item?.duration || item?.etd || "",
+      ).trim()
+
+      if (!courierCode || !serviceCode || price === null) {
+        return null
+      }
+
+      return {
+        id: `${courierCode}-${serviceCode}-${index}`,
+        courierCode,
+        serviceCode,
+        serviceName,
+        price,
+        etd,
+      }
+    })
+    .filter(Boolean)
+}
+
+function normalizeApiArray(payload) {
+  if (Array.isArray(payload?.data)) {
+    return payload.data
+  }
+
+  return []
+}
+
+function buildAreaLabel(area) {
+  return [
+    area?.name,
+    area?.district,
+    area?.city,
+    area?.province,
+    area?.postal_code,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ")
+}
+
 const fieldLabels = {
   name: "Full Name",
   email: "Email",
@@ -117,8 +211,24 @@ export default function CheckoutPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState("")
   const [toast, setToast] = useState(null)
+  const [selectedCourier, setSelectedCourier] = useState("")
+  const [shippingService, setShippingService] = useState("")
+  const [shippingServices, setShippingServices] = useState([])
+  const [isCalculatingShipping, setIsCalculatingShipping] = useState(false)
+  const [shippingRatesError, setShippingRatesError] = useState("")
+  const [areaQuery, setAreaQuery] = useState(
+    [formData.city, formData.province].filter(Boolean).join(", "),
+  )
+  const [areaResults, setAreaResults] = useState([])
+  const [selectedAreaId, setSelectedAreaId] = useState("")
+  const [selectedArea, setSelectedArea] = useState(null)
+  const [isLoadingAreas, setIsLoadingAreas] = useState(false)
+  const [areaError, setAreaError] = useState("")
+  const [isAreaDropdownOpen, setIsAreaDropdownOpen] = useState(false)
   const fieldRefs = useRef({})
   const toastTimerRef = useRef(null)
+  const areaRequestIdRef = useRef(0)
+  const shippingRequestIdRef = useRef(0)
 
   const midtransClientKey = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY || ""
 
@@ -129,6 +239,183 @@ export default function CheckoutPage() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    const normalizedQuery = areaQuery.trim()
+
+    if (selectedArea && normalizedQuery === buildAreaLabel(selectedArea)) {
+      setAreaResults([])
+      setIsLoadingAreas(false)
+      return
+    }
+
+    if (normalizedQuery.length < 3) {
+      setAreaResults([])
+      setIsLoadingAreas(false)
+      setAreaError("")
+      setIsAreaDropdownOpen(false)
+      return
+    }
+
+    let isActive = true
+    const requestId = areaRequestIdRef.current + 1
+    areaRequestIdRef.current = requestId
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        setIsLoadingAreas(true)
+        setAreaError("")
+        setIsAreaDropdownOpen(true)
+
+        const response = await fetch(
+          `/api/shipping/areas?input=${encodeURIComponent(normalizedQuery)}`,
+          {
+            cache: "no-store",
+          },
+        )
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok || payload?.success !== true) {
+          throw new Error(payload?.message || "Failed to search areas.")
+        }
+
+        if (!isActive || areaRequestIdRef.current !== requestId) {
+          return
+        }
+
+        const nextAreas = normalizeApiArray(payload)
+        setAreaResults(nextAreas)
+      } catch {
+        if (!isActive || areaRequestIdRef.current !== requestId) {
+          return
+        }
+
+        setAreaError("Failed to search areas. Please try again.")
+        setAreaResults([])
+      } finally {
+        if (isActive && areaRequestIdRef.current === requestId) {
+          setIsLoadingAreas(false)
+        }
+      }
+    }, 300)
+
+    return () => {
+      isActive = false
+      clearTimeout(timeoutId)
+    }
+  }, [areaQuery, selectedArea])
+
+  useEffect(() => {
+    const courierCode = COURIER_CODE_MAP[selectedCourier]
+
+    setShippingService("")
+    setShippingServices([])
+    setShippingRatesError("")
+
+    if (!selectedCourier) {
+      setIsCalculatingShipping(false)
+      return
+    }
+
+    if (!selectedAreaId) {
+      setIsCalculatingShipping(false)
+      setShippingRatesError("Please select a shipping area first.")
+      return
+    }
+
+    if (!courierCode) {
+      setIsCalculatingShipping(false)
+      setShippingRatesError("Selected courier is not supported.")
+      return
+    }
+
+    const items = cartItems
+      .map((item) => ({
+        name: String(item?.name || "").trim(),
+        weight:
+          Number(item?.weight) > 0 ? Number(item.weight) : DEFAULT_ITEM_WEIGHT,
+        quantity: Number(item?.quantity) || 0,
+      }))
+      .filter((item) => item.name && item.quantity > 0)
+
+    if (items.length === 0) {
+      setIsCalculatingShipping(false)
+      setShippingRatesError("No valid cart items for shipping calculation.")
+      return
+    }
+
+    let isActive = true
+    const requestId = shippingRequestIdRef.current + 1
+    shippingRequestIdRef.current = requestId
+
+    const fetchShippingRates = async () => {
+      try {
+        setIsCalculatingShipping(true)
+
+        const response = await fetch("/api/shipping/rates", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            destination_area_id: selectedAreaId,
+            items,
+          }),
+        })
+
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(payload?.message || "Failed to calculate shipping.")
+        }
+
+        if (!isActive || shippingRequestIdRef.current !== requestId) {
+          return
+        }
+
+        const allRates = normalizeRatesResponse(payload)
+        const courierServices = allRates.filter(
+          (service) => service.courierCode === courierCode,
+        )
+
+        if (courierServices.length === 0) {
+          setShippingRatesError(
+            `No shipping services available for ${selectedCourier}.`,
+          )
+          setShippingServices([])
+          return
+        }
+
+        setShippingServices(courierServices)
+      } catch (error) {
+        if (!isActive || shippingRequestIdRef.current !== requestId) {
+          return
+        }
+
+        setShippingServices([])
+        setShippingRatesError(
+          error instanceof Error
+            ? error.message
+            : "Failed to calculate shipping.",
+        )
+      } finally {
+        if (isActive && shippingRequestIdRef.current === requestId) {
+          setIsCalculatingShipping(false)
+        }
+      }
+    }
+
+    fetchShippingRates()
+
+    return () => {
+      isActive = false
+    }
+  }, [cartItems, selectedAreaId, selectedCourier])
+
+  const selectedShippingService =
+    shippingServices.find((service) => service.id === shippingService) || null
+  const shippingCost = selectedShippingService?.price || 0
+  const displayTotal = cartTotal + shippingCost
 
   const showToast = (title, description) => {
     setToast({
@@ -270,6 +557,27 @@ export default function CheckoutPage() {
       return
     }
 
+    if (isCalculatingShipping) {
+      setSubmitError("Shipping is still being calculated. Please wait.")
+      return
+    }
+
+    if (shippingRatesError) {
+      setSubmitError("Please resolve shipping issues before continuing.")
+      return
+    }
+
+    if (!selectedCourier || !selectedShippingService) {
+      setSubmitError(
+        "Please select a shipping courier and shipping service before payment.",
+      )
+      showToast(
+        "Shipping Required",
+        "Select courier and shipping service to continue payment.",
+      )
+      return
+    }
+
     const customerInformation = {
       name: formData.name.trim(),
       email: formData.email.trim(),
@@ -283,19 +591,25 @@ export default function CheckoutPage() {
       fullAddress: formData.fullAddress.trim(),
     }
 
-    const shippingFee = 0
+    const shippingFee = shippingCost
     const subtotal = cartTotal
-    const total = subtotal + shippingFee
+    const totalAmount = subtotal + shippingFee
     const attemptId = createCheckoutAttemptId()
     const paymentPayload = {
       attemptId,
       customerInformation,
       shippingAddress,
       cartItems,
+      shipping: {
+        courier: selectedCourier,
+        service: selectedShippingService.serviceCode,
+        estimatedDelivery: selectedShippingService.etd,
+        destinationAreaId: selectedAreaId,
+      },
       totals: {
         subtotal,
         shippingFee,
-        total,
+        total: totalAmount,
       },
     }
 
@@ -328,6 +642,85 @@ export default function CheckoutPage() {
     } catch {
       setIsSubmitting(false)
       setSubmitError("Failed to prepare payment. Please try again.")
+    }
+  }
+
+  const handleAreaInputChange = (event) => {
+    const nextQuery = event.target.value
+
+    setAreaQuery(nextQuery)
+    setSelectedAreaId("")
+    setSelectedArea(null)
+    setAreaError("")
+    setAreaResults([])
+    setIsAreaDropdownOpen(true)
+    setSelectedCourier("")
+    setShippingService("")
+    setShippingServices([])
+    setShippingRatesError("")
+    setIsCalculatingShipping(false)
+
+    setFormData((prev) => ({
+      ...prev,
+      province: "",
+      city: "",
+    }))
+
+    if (errors.province || errors.city) {
+      setErrors((prev) => ({
+        ...prev,
+        province: validateField("province", ""),
+        city: validateField("city", ""),
+      }))
+    }
+  }
+
+  const handleAreaSelect = (area) => {
+    const nextSelectedArea = {
+      id: String(area?.id || ""),
+      name: String(area?.name || "").trim(),
+      postal_code: String(area?.postal_code || "").trim(),
+      administrative_division_level_1_name: String(
+        area?.administrative_division_level_1_name || area?.province || "",
+      ).trim(),
+      administrative_division_level_2_name: String(
+        area?.administrative_division_level_2_name || area?.city || "",
+      ).trim(),
+      administrative_division_level_3_name: String(
+        area?.administrative_division_level_3_name || area?.district || "",
+      ).trim(),
+      province: String(area?.province || "").trim(),
+      city: String(area?.city || "").trim(),
+      district: String(area?.district || "").trim(),
+    }
+
+    setSelectedAreaId(nextSelectedArea.id)
+    setSelectedArea(nextSelectedArea)
+    setAreaQuery(buildAreaLabel(area))
+    setAreaResults([])
+    setAreaError("")
+    setIsAreaDropdownOpen(false)
+    setSelectedCourier("")
+    setShippingService("")
+    setShippingServices([])
+    setShippingRatesError("")
+    setIsCalculatingShipping(false)
+
+    console.log("[BITESHIP] Selected area", nextSelectedArea)
+
+    setFormData((prev) => ({
+      ...prev,
+      province: nextSelectedArea.province,
+      city: nextSelectedArea.city,
+      postalCode: prev.postalCode || nextSelectedArea.postal_code,
+    }))
+
+    if (errors.province || errors.city) {
+      setErrors((prev) => ({
+        ...prev,
+        province: validateField("province", nextSelectedArea.province),
+        city: validateField("city", nextSelectedArea.city),
+      }))
     }
   }
 
@@ -460,65 +853,99 @@ export default function CheckoutPage() {
                 <h2 className="mt-12 text-2xl md:text-3xl">Shipping Address</h2>
 
                 <div className="mt-8 grid gap-6 md:grid-cols-2">
-                  <div>
+                  <div className="md:col-span-2">
                     <label
-                      htmlFor="province"
+                      htmlFor="shippingArea"
                       className="mb-2 block text-sm text-white/80"
                     >
-                      Province *
+                      Shipping Area *
                     </label>
-                    <input
-                      id="province"
-                      name="province"
-                      type="text"
-                      ref={(element) => {
-                        fieldRefs.current.province = element
-                      }}
-                      value={formData.province}
-                      onChange={handleChange}
-                      onBlur={handleBlur}
-                      autoComplete="address-level1"
-                      aria-invalid={Boolean(errors.province)}
-                      aria-describedby={
-                        errors.province ? "province-error" : undefined
-                      }
-                      className={getFieldClassName("province")}
-                    />
-                    {errors.province ? (
-                      <p
-                        id="province-error"
-                        className="mt-2 text-sm text-red-500"
-                      >
-                        {errors.province}
+                    <div className="relative">
+                      <input
+                        id="shippingArea"
+                        name="shippingArea"
+                        type="text"
+                        ref={(element) => {
+                          fieldRefs.current.province = element
+                          fieldRefs.current.city = element
+                        }}
+                        value={areaQuery}
+                        onChange={handleAreaInputChange}
+                        onFocus={() => {
+                          if (areaResults.length > 0) {
+                            setIsAreaDropdownOpen(true)
+                          }
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setIsAreaDropdownOpen(false)
+                          }, 150)
+
+                          setErrors((prev) => ({
+                            ...prev,
+                            province: validateField(
+                              "province",
+                              selectedArea?.province || formData.province,
+                            ),
+                            city: validateField(
+                              "city",
+                              selectedArea?.city || formData.city,
+                            ),
+                          }))
+                        }}
+                        placeholder="Search area, district, city, or postal code"
+                        aria-invalid={Boolean(errors.province || errors.city)}
+                        aria-describedby={
+                          errors.province || errors.city
+                            ? "shipping-area-error"
+                            : undefined
+                        }
+                        className={getFieldClassName("province")}
+                      />
+
+                      {isAreaDropdownOpen && areaResults.length > 0 ? (
+                        <div className="absolute z-20 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-white/20 bg-black shadow-2xl">
+                          {areaResults.map((area) => (
+                            <button
+                              key={String(area.id)}
+                              type="button"
+                              onMouseDown={(event) => {
+                                event.preventDefault()
+                                handleAreaSelect(area)
+                              }}
+                              className="block w-full border-b border-white/10 px-4 py-3 text-left text-sm text-white transition last:border-b-0 hover:bg-white/10"
+                            >
+                              <span className="block text-white">
+                                {String(area.name || "")}
+                              </span>
+                              <span className="mt-1 block text-xs text-white/60">
+                                {buildAreaLabel(area)}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {isLoadingAreas ? (
+                      <p className="mt-2 text-sm text-white/60">
+                        Searching areas...
                       </p>
                     ) : null}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="city"
-                      className="mb-2 block text-sm text-white/80"
-                    >
-                      City *
-                    </label>
-                    <input
-                      id="city"
-                      name="city"
-                      type="text"
-                      ref={(element) => {
-                        fieldRefs.current.city = element
-                      }}
-                      value={formData.city}
-                      onChange={handleChange}
-                      onBlur={handleBlur}
-                      autoComplete="address-level2"
-                      aria-invalid={Boolean(errors.city)}
-                      aria-describedby={errors.city ? "city-error" : undefined}
-                      className={getFieldClassName("city")}
-                    />
-                    {errors.city ? (
-                      <p id="city-error" className="mt-2 text-sm text-red-500">
-                        {errors.city}
+                    {areaError ? (
+                      <p className="mt-2 text-sm text-red-500">{areaError}</p>
+                    ) : null}
+                    {errors.province || errors.city ? (
+                      <p
+                        id="shipping-area-error"
+                        className="mt-2 text-sm text-red-500"
+                      >
+                        {errors.province || errors.city}
+                      </p>
+                    ) : null}
+                    {selectedAreaId ? (
+                      <p className="mt-2 text-xs text-white/45">
+                        Area ID: {selectedAreaId}
                       </p>
                     ) : null}
                   </div>
@@ -533,7 +960,6 @@ export default function CheckoutPage() {
                     <input
                       id="postalCode"
                       name="postalCode"
-                      type="text"
                       ref={(element) => {
                         fieldRefs.current.postalCode = element
                       }}
@@ -592,6 +1018,95 @@ export default function CheckoutPage() {
                     ) : null}
                   </div>
                 </div>
+
+                <section className="mt-12 space-y-6">
+                  <h2 className="text-2xl md:text-3xl">Shipping Method</h2>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {COURIER_OPTIONS.map((courier) => {
+                      const isSelected = selectedCourier === courier
+
+                      return (
+                        <label
+                          key={courier}
+                          className={`cursor-pointer rounded-xl border p-4 transition ${
+                            isSelected
+                              ? "border-white bg-white text-black"
+                              : "border-white/30 bg-black text-white hover:border-white"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="shippingCourier"
+                            value={courier}
+                            checked={isSelected}
+                            onChange={(event) => {
+                              setSelectedCourier(event.target.value)
+                            }}
+                            className="sr-only"
+                          />
+                          <span className="text-base tracking-wide">
+                            {courier}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="shippingService"
+                      className="mb-2 block text-sm text-white/80"
+                    >
+                      Shipping Service *
+                    </label>
+                    <select
+                      id="shippingService"
+                      name="shippingService"
+                      value={shippingService}
+                      onChange={(event) =>
+                        setShippingService(event.target.value)
+                      }
+                      disabled={
+                        !selectedCourier ||
+                        isCalculatingShipping ||
+                        shippingServices.length === 0
+                      }
+                      className="h-12 w-full rounded-xl border border-white/30 bg-black px-4 text-white/50 outline-none transition disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      <option value="" className="text-black">
+                        {!selectedCourier
+                          ? "Select a courier first"
+                          : isCalculatingShipping
+                            ? "Calculating shipping..."
+                            : shippingServices.length === 0
+                              ? "No services available"
+                              : "Select shipping service"}
+                      </option>
+                      {shippingServices.map((service) => (
+                        <option
+                          key={service.id}
+                          value={service.id}
+                          className="text-black"
+                        >
+                          {service.serviceCode}
+                          {service.etd ? ` (${service.etd})` : ""} -{" "}
+                          {formatRupiah(service.price)}
+                        </option>
+                      ))}
+                    </select>
+                    {isCalculatingShipping ? (
+                      <p className="mt-2 text-sm text-white/60">
+                        Calculating shipping...
+                      </p>
+                    ) : null}
+                    {shippingRatesError ? (
+                      <p className="mt-2 text-sm text-red-500">
+                        {shippingRatesError}
+                      </p>
+                    ) : null}
+                  </div>
+                </section>
               </section>
 
               <aside className="rounded-2xl border border-white/20 p-6 md:p-8 lg:p-10">
@@ -642,12 +1157,12 @@ export default function CheckoutPage() {
                     <span>{formatRupiah(cartTotal)}</span>
                   </div>
                   <div className="flex items-center justify-between text-white/80">
-                    <span>Shipping</span>
-                    <span>Free</span>
+                    <span>Shipping Cost</span>
+                    <span>{formatRupiah(shippingCost)}</span>
                   </div>
                   <div className="flex items-center justify-between border-t border-white/20 pt-3 text-lg">
                     <span>Total</span>
-                    <span>{formatRupiah(cartTotal)}</span>
+                    <span>{formatRupiah(displayTotal)}</span>
                   </div>
                 </div>
               </aside>

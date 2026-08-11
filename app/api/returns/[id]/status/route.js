@@ -36,6 +36,7 @@ export async function PATCH(request, { params }) {
         email: true,
         orderNumber: true,
         orderItems: true,
+        reason: true,
         status: true,
         createdAt: true,
       },
@@ -56,6 +57,7 @@ export async function PATCH(request, { params }) {
         email: true,
         orderNumber: true,
         orderItems: true,
+        reason: true,
         status: true,
         createdAt: true,
         updatedAt: true,
@@ -68,6 +70,7 @@ export async function PATCH(request, { params }) {
           email: updatedRequest.email,
           orderNumber: updatedRequest.orderNumber,
           orderItems: updatedRequest.orderItems,
+          reason: updatedRequest.reason,
           status: updatedRequest.status,
           createdAt: updatedRequest.createdAt,
         })

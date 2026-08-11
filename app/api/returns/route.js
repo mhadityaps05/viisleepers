@@ -16,6 +16,7 @@ export async function POST(request) {
       typeof body?.orderNumber === "string" ? body.orderNumber.trim() : ""
     const orderItems =
       typeof body?.orderItems === "string" ? body.orderItems.trim() : ""
+    const reason = typeof body?.reason === "string" ? body.reason.trim() : ""
 
     if (!email || !EMAIL_PATTERN.test(email)) {
       return NextResponse.json(
@@ -38,17 +39,26 @@ export async function POST(request) {
       )
     }
 
+    if (!reason) {
+      return NextResponse.json(
+        { success: false, message: "Reason for return is required." },
+        { status: 400 },
+      )
+    }
+
     const returnRequest = await prisma.returnRequest.create({
       data: {
         email,
         orderNumber,
         orderItems,
+        reason,
       },
       select: {
         id: true,
         email: true,
         orderNumber: true,
         orderItems: true,
+        reason: true,
         status: true,
         createdAt: true,
       },
@@ -61,6 +71,7 @@ export async function POST(request) {
         email: returnRequest.email,
         orderNumber: returnRequest.orderNumber,
         orderItems: returnRequest.orderItems,
+        reason: returnRequest.reason,
         status: returnRequest.status,
         createdAt: returnRequest.createdAt,
       })

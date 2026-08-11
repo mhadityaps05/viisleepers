@@ -1,9 +1,7 @@
 import Link from "next/link"
 import { prisma } from "@/lib/prisma"
-import ReturnStatusForm from "./ReturnStatusForm"
 
 const PAGE_SIZE = 10
-const STATUS_OPTIONS = ["All", "Pending", "Approved", "Rejected", "Completed"]
 
 function toPositiveInt(value, fallback = 1) {
   const parsed = Number(value)
@@ -29,10 +27,6 @@ function buildReturnsUrl(filters) {
     params.set("q", filters.q)
   }
 
-  if (filters.status && filters.status !== "All") {
-    params.set("status", filters.status)
-  }
-
   if (filters.page && Number(filters.page) > 1) {
     params.set("page", String(filters.page))
   }
@@ -47,10 +41,6 @@ export default async function ReturnsPage({ searchParams }) {
   const params = await searchParams
 
   const q = typeof params?.q === "string" ? params.q.trim() : ""
-  const status =
-    typeof params?.status === "string" && STATUS_OPTIONS.includes(params.status)
-      ? params.status
-      : "All"
   const requestedPage = toPositiveInt(params?.page, 1)
 
   const whereClauses = []
@@ -62,10 +52,6 @@ export default async function ReturnsPage({ searchParams }) {
         { orderNumber: { contains: q, mode: "insensitive" } },
       ],
     })
-  }
-
-  if (status !== "All") {
-    whereClauses.push({ status })
   }
 
   const where = whereClauses.length > 0 ? { AND: whereClauses } : {}
@@ -84,12 +70,30 @@ export default async function ReturnsPage({ searchParams }) {
       email: true,
       orderNumber: true,
       orderItems: true,
-      status: true,
+      reason: true,
       createdAt: true,
     },
   })
 
-  const hasFilters = q || status !== "All"
+  const orderNumbers = [
+    ...new Set(returnRequests.map((request) => request.orderNumber)),
+  ]
+  const relatedOrders = await prisma.order.findMany({
+    where: {
+      orderNumber: {
+        in: orderNumbers,
+      },
+    },
+    select: {
+      id: true,
+      orderNumber: true,
+    },
+  })
+  const orderIdByOrderNumber = new Map(
+    relatedOrders.map((order) => [order.orderNumber, order.id]),
+  )
+
+  const hasFilters = Boolean(q)
 
   return (
     <section className="space-y-6 text-white">
@@ -110,19 +114,6 @@ export default async function ReturnsPage({ searchParams }) {
             placeholder="Search by email or order number"
             className="h-10 w-full rounded-md border border-white/40 bg-[#264b38] px-3 text-sm text-white placeholder:text-white/60 outline-none focus:border-white lg:flex-1"
           />
-
-          <select
-            name="status"
-            defaultValue={status}
-            className="h-10 w-full rounded-md border border-white/40 bg-[#264b38] px-3 text-sm text-white outline-none focus:border-white lg:w-40"
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option} value={option} className="text-black">
-                {option === "All" ? "Status: All" : option}
-              </option>
-            ))}
-          </select>
-
           <button
             type="submit"
             className="h-10 rounded-md border border-white bg-white px-4 text-sm font-semibold text-[#3C6D53] transition hover:bg-green-100 lg:w-auto"
@@ -155,10 +146,10 @@ export default async function ReturnsPage({ searchParams }) {
                 <tr>
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">Order Number</th>
-                  <th className="px-4 py-3">Order Items</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Created Date</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <th className="px-4 py-3">Order Item</th>
+                  <th className="px-4 py-3">Reason</th>
+                  <th className="px-4 py-3">Requested Date</th>
+                  <th className="px-4 py-3 text-right">View Order</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/15 bg-white text-sm text-black">
@@ -167,15 +158,25 @@ export default async function ReturnsPage({ searchParams }) {
                     <td className="px-4 py-3 font-semibold">{request.email}</td>
                     <td className="px-4 py-3">{request.orderNumber}</td>
                     <td className="max-w-xs px-4 py-3">{request.orderItems}</td>
-                    <td className="px-4 py-3">{request.status}</td>
+                    <td className="max-w-xs px-4 py-3">
+                      {request.reason || "-"}
+                    </td>
                     <td className="px-4 py-3">
                       {formatDate(request.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <ReturnStatusForm
-                        id={request.id}
-                        initialStatus={request.status}
-                      />
+                      {orderIdByOrderNumber.get(request.orderNumber) ? (
+                        <Link
+                          href={`/admin/dashboard/orders/${orderIdByOrderNumber.get(request.orderNumber)}`}
+                          className="rounded border border-green-200 px-3 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50"
+                        >
+                          View Order
+                        </Link>
+                      ) : (
+                        <span className="rounded border border-black/20 px-3 py-1 text-xs text-black/50">
+                          View Order
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -192,7 +193,7 @@ export default async function ReturnsPage({ searchParams }) {
 
         <div className="flex items-center gap-2">
           <Link
-            href={buildReturnsUrl({ q, status, page: currentPage - 1 })}
+            href={buildReturnsUrl({ q, page: currentPage - 1 })}
             className={`rounded border px-3 py-1 transition ${
               currentPage <= 1
                 ? "pointer-events-none border-white/20 text-white/40"
@@ -202,7 +203,7 @@ export default async function ReturnsPage({ searchParams }) {
             Previous
           </Link>
           <Link
-            href={buildReturnsUrl({ q, status, page: currentPage + 1 })}
+            href={buildReturnsUrl({ q, page: currentPage + 1 })}
             className={`rounded border px-3 py-1 transition ${
               currentPage >= totalPages
                 ? "pointer-events-none border-white/20 text-white/40"

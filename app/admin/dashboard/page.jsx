@@ -1,13 +1,16 @@
 import { prisma } from "@/lib/prisma"
+import Link from "next/link"
 
 export const dynamic = "force-dynamic"
 
+const PAYMENT_STATUSES = ["Pending", "Paid", "Failed", "Expired", "Refunded"]
+
 const ORDER_STATUSES = [
   "Pending",
-  "Paid",
   "Processing",
-  "Shipped",
-  "Completed",
+  "Shipping",
+  "Delivered",
+  "Return Complete",
   "Cancelled",
 ]
 
@@ -19,11 +22,15 @@ function formatRupiah(value) {
   }).format(value)
 }
 
-function formatDate(value) {
-  return new Intl.DateTimeFormat("id-ID", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(value)
+function formatCourier(order) {
+  const courier = String(order?.shippingCourier || "").trim()
+  const service = String(order?.shippingService || "").trim()
+
+  if (!courier || !service) {
+    return "-"
+  }
+
+  return `${courier} ${service}`
 }
 
 function SummaryCard({ label, value, description }) {
@@ -45,24 +52,27 @@ export default async function AdminPage() {
     productCount,
     totalOrders,
     pendingOrders,
-    recentOrders,
+    readyToShipOrders,
     lowStockProducts,
-    statusCounts,
+    paymentStatusCounts,
+    orderStatusCounts,
     totalRevenue,
   ] = await Promise.all([
     prisma.product.count(),
     prisma.order.count(),
-    prisma.order.count({ where: { status: "Pending" } }),
+    prisma.order.count({ where: { orderStatus: "Pending" } }),
     prisma.order.findMany({
-      orderBy: { createdAt: "desc" },
+      where: {
+        status: "Paid",
+        orderStatus: "Processing",
+      },
+      orderBy: { createdAt: "asc" },
       take: 5,
       select: {
         id: true,
         orderNumber: true,
-        customerName: true,
-        total: true,
-        status: true,
-        createdAt: true,
+        shippingCourier: true,
+        shippingService: true,
       },
     }),
     prisma.product.findMany({
@@ -74,23 +84,38 @@ export default async function AdminPage() {
         stock: true,
       },
     }),
+    prisma.order.groupBy({ by: ["status"], _count: { status: true } }),
     prisma.order.groupBy({
-      by: ["status"],
-      _count: { status: true },
+      by: ["orderStatus"],
+      _count: { orderStatus: true },
     }),
     prisma.order.aggregate({
-      where: { status: { in: ["Completed", "Paid"] } },
+      where: {
+        status: "Paid",
+        orderStatus: {
+          notIn: ["Return Complete", "ReturnCompleted", "RETURN_COMPLETE"],
+        },
+      },
       _sum: { total: true },
     }),
   ])
 
-  const statusSummary = ORDER_STATUSES.reduce((acc, status) => {
+  const paymentStatusSummary = PAYMENT_STATUSES.reduce((acc, status) => {
     acc[status] = 0
     return acc
   }, {})
 
-  statusCounts.forEach((entry) => {
-    statusSummary[entry.status] = entry._count.status
+  paymentStatusCounts.forEach((entry) => {
+    paymentStatusSummary[entry.status] = entry._count.status
+  })
+
+  const orderStatusSummary = ORDER_STATUSES.reduce((acc, status) => {
+    acc[status] = 0
+    return acc
+  }, {})
+
+  orderStatusCounts.forEach((entry) => {
+    orderStatusSummary[entry.orderStatus] = entry._count.orderStatus
   })
 
   return (
@@ -106,7 +131,7 @@ export default async function AdminPage() {
         <SummaryCard
           label="Total Revenue"
           value={formatRupiah(totalRevenue._sum.total ?? 0)}
-          description="Completed and Paid orders"
+          description="Paid orders excluding return-complete orders"
         />
         <SummaryCard
           label="Total Orders"
@@ -128,34 +153,37 @@ export default async function AdminPage() {
       <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
         <div className="overflow-hidden rounded-xl border border-white/50 bg-[#2f5a44] shadow-xl">
           <div className="border-b border-white/25 px-6 py-4">
-            <h2 className="text-xl font-semibold">Recent Orders</h2>
+            <h2 className="text-xl font-semibold">Ready to Ship</h2>
           </div>
 
-          {recentOrders.length === 0 ? (
-            <div className="p-6 text-sm text-white/80">No orders found.</div>
+          {readyToShipOrders.length === 0 ? (
+            <div className="p-6 text-sm text-white/80">
+              No orders ready to ship.
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-white/25">
                 <thead className="bg-[#264b38] text-left text-xs uppercase tracking-wider text-white">
                   <tr>
-                    <th className="px-4 py-3">Order Number</th>
-                    <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3">Total</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Order ID</th>
+                    <th className="px-4 py-3">Courier</th>
+                    <th className="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/15 bg-white text-sm text-black">
-                  {recentOrders.map((order) => (
+                  {readyToShipOrders.map((order) => (
                     <tr key={order.id}>
                       <td className="px-4 py-3 font-semibold">
                         {order.orderNumber}
                       </td>
-                      <td className="px-4 py-3">{order.customerName}</td>
-                      <td className="px-4 py-3">{formatRupiah(order.total)}</td>
-                      <td className="px-4 py-3">{order.status}</td>
-                      <td className="px-4 py-3">
-                        {formatDate(order.createdAt)}
+                      <td className="px-4 py-3">{formatCourier(order)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/admin/dashboard/orders/${order.id}`}
+                          className="rounded border border-green-200 px-3 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50"
+                        >
+                          View
+                        </Link>
                       </td>
                     </tr>
                   ))}
@@ -163,6 +191,15 @@ export default async function AdminPage() {
               </table>
             </div>
           )}
+
+          <div className="border-t border-white/25 px-6 py-4 text-right">
+            <Link
+              href="/admin/dashboard/orders?order=Processing"
+              className="text-sm text-white/90 transition hover:text-white"
+            >
+              View All →
+            </Link>
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -214,7 +251,7 @@ export default async function AdminPage() {
                     {status}
                   </p>
                   <p className="mt-2 text-2xl font-bold">
-                    {statusSummary[status]}
+                    {orderStatusSummary[status]}
                   </p>
                 </div>
               ))}

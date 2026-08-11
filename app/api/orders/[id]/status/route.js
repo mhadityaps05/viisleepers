@@ -8,6 +8,7 @@ const ALLOWED_STATUSES = new Set([
   "Shipping",
   "Delivered",
   "Cancelled",
+  "Return Complete",
 ])
 
 export async function PATCH(request, { params }) {
@@ -16,7 +17,6 @@ export async function PATCH(request, { params }) {
     const body = await request.json()
     const orderStatus =
       typeof body?.orderStatus === "string" ? body.orderStatus.trim() : ""
-    const courier = typeof body?.courier === "string" ? body.courier.trim() : ""
     const trackingNumber =
       typeof body?.trackingNumber === "string" ? body.trackingNumber.trim() : ""
 
@@ -34,7 +34,20 @@ export async function PATCH(request, { params }) {
       )
     }
 
-    if (orderStatus === "Shipping" && (!courier || !trackingNumber)) {
+    const existingOrder = await prisma.order.findUnique({
+      where: { id },
+      select: {
+        shippingCourier: true,
+      },
+    })
+
+    if (!existingOrder) {
+      return NextResponse.json({ message: "Order not found." }, { status: 404 })
+    }
+
+    const resolvedCourier = String(existingOrder.shippingCourier || "").trim()
+
+    if (orderStatus === "Shipping" && (!resolvedCourier || !trackingNumber)) {
       return NextResponse.json(
         { message: "Courier and tracking number are required for Shipping." },
         { status: 400 },
@@ -43,7 +56,7 @@ export async function PATCH(request, { params }) {
 
     const updateData = {
       orderStatus,
-      courier: orderStatus === "Shipping" ? courier : null,
+      courier: orderStatus === "Shipping" ? resolvedCourier : null,
       trackingNumber: orderStatus === "Shipping" ? trackingNumber : null,
     }
 
@@ -74,6 +87,10 @@ export async function PATCH(request, { params }) {
         createdAt: true,
         status: true,
         orderStatus: true,
+        shippingCourier: true,
+        shippingService: true,
+        estimatedDelivery: true,
+        destinationAreaId: true,
         courier: true,
         trackingNumber: true,
         orderItems: {

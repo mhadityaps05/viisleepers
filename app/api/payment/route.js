@@ -47,7 +47,33 @@ function sanitizeOrderItems(items) {
   return sanitized
 }
 
-function buildSnapItemDetails(cartItems, shippingFee) {
+function sanitizeShippingSelection(payload) {
+  const courier =
+    typeof payload?.courier === "string" ? payload.courier.trim() : ""
+  const service =
+    typeof payload?.service === "string" ? payload.service.trim() : ""
+  const estimatedDelivery =
+    typeof payload?.estimatedDelivery === "string"
+      ? payload.estimatedDelivery.trim()
+      : ""
+  const destinationAreaId =
+    typeof payload?.destinationAreaId === "string"
+      ? payload.destinationAreaId.trim()
+      : ""
+
+  if (!courier || !service) {
+    return null
+  }
+
+  return {
+    courier,
+    service,
+    estimatedDelivery,
+    destinationAreaId,
+  }
+}
+
+function buildSnapItemDetails(cartItems, shippingFee, shippingSelection) {
   const productItems = cartItems.map((item) => ({
     id: item.productId,
     price: item.price,
@@ -57,10 +83,10 @@ function buildSnapItemDetails(cartItems, shippingFee) {
 
   if (shippingFee > 0) {
     productItems.push({
-      id: "SHIPPING",
+      id: "shipping",
       price: shippingFee,
       quantity: 1,
-      name: "Shipping Fee",
+      name: `${shippingSelection.courier} ${shippingSelection.service} Shipping`,
     })
   }
 
@@ -113,6 +139,7 @@ export async function POST(request) {
 
     const customerInformation = body?.customerInformation ?? {}
     const shippingAddress = body?.shippingAddress ?? {}
+    const shippingSelection = sanitizeShippingSelection(body?.shipping)
     const totals = body?.totals ?? {}
     const cartItems = sanitizeOrderItems(body?.cartItems)
 
@@ -158,6 +185,13 @@ export async function POST(request) {
       )
     }
 
+    if (!shippingSelection) {
+      return NextResponse.json(
+        { message: "Shipping service must be selected before payment." },
+        { status: 400 },
+      )
+    }
+
     if (
       !isNonNegativeInteger(subtotal) ||
       !isNonNegativeInteger(shippingFee) ||
@@ -181,6 +215,23 @@ export async function POST(request) {
       )
     }
 
+    const snapItemDetails = buildSnapItemDetails(
+      cartItems,
+      shippingFee,
+      shippingSelection,
+    )
+    const grossAmount = snapItemDetails.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0,
+    )
+
+    if (grossAmount !== total) {
+      return NextResponse.json(
+        { message: "Payment amount does not match item details." },
+        { status: 400 },
+      )
+    }
+
     // 2) Derive a deterministic order number so refreshes and retries reuse the same order.
     const orderNumber = buildOrderNumberFromAttemptId(attemptId)
 
@@ -198,6 +249,10 @@ export async function POST(request) {
         subtotal: true,
         shippingFee: true,
         total: true,
+        shippingCourier: true,
+        shippingService: true,
+        estimatedDelivery: true,
+        destinationAreaId: true,
         paymentSessionStatus: true,
         midtransToken: true,
         midtransRedirectUrl: true,
@@ -234,7 +289,13 @@ export async function POST(request) {
         existingOrder.address === address.trim() &&
         existingOrder.subtotal === subtotal &&
         existingOrder.shippingFee === shippingFee &&
-        existingOrder.total === total
+        existingOrder.total === total &&
+        (existingOrder.shippingCourier || "") === shippingSelection.courier &&
+        (existingOrder.shippingService || "") === shippingSelection.service &&
+        (existingOrder.estimatedDelivery || "") ===
+          shippingSelection.estimatedDelivery &&
+        (existingOrder.destinationAreaId || "") ===
+          shippingSelection.destinationAreaId
 
       const hasSameItems =
         existingOrder.orderItems.length === cartItems.length &&
@@ -298,6 +359,10 @@ export async function POST(request) {
             subtotal,
             shippingFee,
             total,
+            shippingCourier: shippingSelection.courier,
+            shippingService: shippingSelection.service,
+            estimatedDelivery: shippingSelection.estimatedDelivery || null,
+            destinationAreaId: shippingSelection.destinationAreaId || null,
             status: "Pending",
             paymentSessionStatus: "PREPARING",
           },
@@ -345,9 +410,9 @@ export async function POST(request) {
       const transaction = await snap.createTransaction({
         transaction_details: {
           order_id: orderNumber,
-          gross_amount: total,
+          gross_amount: grossAmount,
         },
-        item_details: buildSnapItemDetails(cartItems, shippingFee),
+        item_details: snapItemDetails,
         customer_details: {
           first_name: customerName.trim(),
           email: email.trim(),
