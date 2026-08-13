@@ -16,6 +16,13 @@ type ProductDetail = {
   price: number
   stock: number
   images: string[]
+  productSizes: Array<{
+    stock: number
+    size: {
+      value: string
+      active: boolean
+    }
+  }>
 }
 
 export default async function ProductDetailPage({
@@ -28,16 +35,51 @@ export default async function ProductDetailPage({
       product: {
         findUnique: (args: {
           where: { id: string }
+          include: {
+            productSizes: {
+              include: {
+                size: true
+              }
+            }
+          }
         }) => Promise<ProductDetail | null>
       }
     }
   ).product.findUnique({
     where: { id },
+    include: {
+      productSizes: {
+        include: {
+          size: true,
+        },
+      },
+    },
   })
 
   if (!product) {
     notFound()
   }
+
+  const hasConfiguredSizes = product.productSizes.length > 0
+  const sizeOptions = hasConfiguredSizes
+    ? product.productSizes.map((entry) => ({
+        value: entry.size.value,
+        stock: entry.stock,
+        selectable: entry.size.active,
+      }))
+    : [
+        {
+          value: "Default",
+          stock: product.stock,
+          selectable: true,
+        },
+      ]
+
+  const totalStock = hasConfiguredSizes
+    ? sizeOptions
+        .filter((entry) => entry.selectable)
+        .reduce((sum, entry) => sum + entry.stock, 0)
+    : product.stock
 
   return (
     <div className="w-full bg-black relative z-10 p-10 font-benguiat overflow-hidden min-h-screen">
@@ -64,10 +106,10 @@ export default async function ProductDetailPage({
             </p>
             <p
               className={`mt-3 text-lg ${
-                product.stock > 0 ? "text-white/80" : "text-red-300"
+                totalStock > 0 ? "text-white/80" : "text-red-300"
               }`}
             >
-              {product.stock > 0 ? `Stok: ${product.stock}` : "Stok habis"}
+              {totalStock > 0 ? `Stok: ${totalStock}` : "Stok habis"}
             </p>
           </div>
         </div>
@@ -77,7 +119,8 @@ export default async function ProductDetailPage({
             name={product.name}
             price={product.price}
             image={product.images[0] ?? "/logo.svg"}
-            disabled={product.stock === 0}
+            sizeOptions={sizeOptions}
+            disabled={totalStock === 0}
           />
         </div>
       </div>

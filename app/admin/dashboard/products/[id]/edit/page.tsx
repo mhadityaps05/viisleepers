@@ -13,6 +13,13 @@ export default async function EditProductPage({
 
   const product = await prisma.product.findUnique({
     where: { id },
+    include: {
+      productSizes: {
+        include: {
+          size: true,
+        },
+      },
+    },
   })
 
   if (!product) {
@@ -32,8 +39,12 @@ export default async function EditProductPage({
           name: product.name,
           category: product.category,
           price: product.price,
-          stock: product.stock,
           images: product.images,
+          productSizes: product.productSizes.map((item) => ({
+            sizeId: item.sizeId,
+            stock: item.stock,
+            sizeValue: item.size.value,
+          })),
         }}
       />
     </section>

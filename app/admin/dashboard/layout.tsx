@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic"
 const menu = [
   { name: "Dashboard", href: "/admin/dashboard" },
   { name: "Products", href: "/admin/dashboard/products" },
+  { name: "Sizes", href: "/admin/dashboard/sizes" },
   { name: "Orders", href: "/admin/dashboard/orders" },
   { name: "Returns", href: "/admin/dashboard/returns" },
   { name: "Subscribers", href: "/admin/dashboard/customers" },

@@ -18,6 +18,13 @@ export async function getGroupedProducts(): Promise<GroupedProducts> {
 
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "asc" },
+    include: {
+      productSizes: {
+        select: {
+          stock: true,
+        },
+      },
+    },
   })
 
   return products.reduce<GroupedProducts>((acc, prod) => {
@@ -25,12 +32,17 @@ export async function getGroupedProducts(): Promise<GroupedProducts> {
 
     if (!acc[normalizedCategory]) acc[normalizedCategory] = []
 
+    const computedStock =
+      prod.productSizes.length > 0
+        ? prod.productSizes.reduce((sum, item) => sum + item.stock, 0)
+        : prod.stock
+
     acc[normalizedCategory].push({
       id: prod.id,
       category: normalizedCategory,
       name: prod.name,
       price: prod.price,
-      stock: prod.stock,
+      stock: computedStock,
       images: prod.images,
     })
 

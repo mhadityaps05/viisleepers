@@ -10,6 +10,9 @@ type ProductListItem = {
   price: number
   stock: number
   images: string[]
+  productSizes: Array<{
+    id: string
+  }>
 }
 
 function formatRupiah(value: number): string {
@@ -26,11 +29,17 @@ export default async function ProductsPage() {
       product: {
         findMany: (args: {
           orderBy: { createdAt: "desc" }
+          include: {
+            productSizes: true
+          }
         }) => Promise<ProductListItem[]>
       }
     }
   ).product.findMany({
     orderBy: { createdAt: "desc" },
+    include: {
+      productSizes: true,
+    },
   })) as ProductListItem[]
 
   return (
@@ -60,6 +69,7 @@ export default async function ProductsPage() {
                   <th className="px-4 py-3">Category</th>
                   <th className="px-4 py-3">Price</th>
                   <th className="px-4 py-3">Stock</th>
+                  <th className="px-4 py-3">Sizes</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -85,6 +95,7 @@ export default async function ProductsPage() {
                     <td className="px-4 py-3">{product.category}</td>
                     <td className="px-4 py-3">{formatRupiah(product.price)}</td>
                     <td className="px-4 py-3">{product.stock}</td>
+                    <td className="px-4 py-3">{product.productSizes.length}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
                         <Link

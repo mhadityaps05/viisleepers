@@ -22,9 +22,66 @@ function parsePositiveInt(value: FormDataEntryValue | null): number | null {
   return parsed
 }
 
+type ProductSizeInput = {
+  sizeId: string
+  stock: number
+}
+
+function parseProductSizes(
+  value: FormDataEntryValue | null,
+): ProductSizeInput[] | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) {
+      return null
+    }
+
+    const normalized = parsed
+      .map((item) => {
+        const sizeId =
+          typeof item?.sizeId === "string" ? item.sizeId.trim() : ""
+        const stock = Number(item?.stock)
+
+        if (!sizeId || !Number.isInteger(stock) || stock < 0) {
+          return null
+        }
+
+        return {
+          sizeId,
+          stock,
+        }
+      })
+      .filter((item): item is ProductSizeInput => item !== null)
+
+    if (normalized.length === 0 || normalized.length !== parsed.length) {
+      return null
+    }
+
+    const uniqueSizeIds = new Set(normalized.map((item) => item.sizeId))
+    if (uniqueSizeIds.size !== normalized.length) {
+      return null
+    }
+
+    return normalized
+  } catch {
+    return null
+  }
+}
+
 export async function GET() {
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
+    include: {
+      productSizes: {
+        include: {
+          size: true,
+        },
+      },
+    },
   })
 
   return NextResponse.json({ products })
@@ -36,7 +93,7 @@ export async function POST(request: Request) {
   const name = formData.get("name")
   const category = formData.get("category")
   const price = parsePositiveInt(formData.get("price"))
-  const stock = parsePositiveInt(formData.get("stock"))
+  const productSizes = parseProductSizes(formData.get("productSizes"))
   const imageFiles = parseImageFiles(formData)
 
   if (typeof name !== "string" || !name.trim()) {
@@ -59,9 +116,11 @@ export async function POST(request: Request) {
     )
   }
 
-  if (stock === null) {
+  if (!productSizes) {
     return NextResponse.json(
-      { message: "Stock must be a non-negative integer." },
+      {
+        message: "At least one valid size with non-negative stock is required.",
+      },
       { status: 400 },
     )
   }
@@ -78,13 +137,41 @@ export async function POST(request: Request) {
   try {
     savedImages = await saveImageFiles(imageFiles)
 
+    const sizeIds = productSizes.map((item) => item.sizeId)
+    const validSizes = await prisma.size.findMany({
+      where: {
+        id: {
+          in: sizeIds,
+        },
+      },
+      select: { id: true },
+    })
+
+    if (validSizes.length !== sizeIds.length) {
+      throw new Error("One or more selected sizes no longer exist.")
+    }
+
+    const totalStock = productSizes.reduce((sum, item) => sum + item.stock, 0)
+
     const product = await prisma.product.create({
       data: {
         name: name.trim(),
         category: normalizedCategory,
         price,
-        stock,
+        stock: totalStock,
         images: savedImages,
+        productSizes: {
+          createMany: {
+            data: productSizes,
+          },
+        },
+      },
+      include: {
+        productSizes: {
+          include: {
+            size: true,
+          },
+        },
       },
     })
 

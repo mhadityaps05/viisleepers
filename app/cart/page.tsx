@@ -9,6 +9,7 @@ import { clearStockConflict, readStockConflict } from "@/lib/checkout-payment"
 type StockConflictItem = {
   productId: string
   productName: string
+  size: string
   availableStock: number
   requestedQuantity: number
 }
@@ -26,7 +27,7 @@ export default function CartPage() {
 
   const highlightedProductIds = new Set(
     Array.isArray(stockConflict?.items)
-      ? stockConflict.items.map((item) => item.productId)
+      ? stockConflict.items.map((item) => `${item.productId}::${item.size}`)
       : [],
   )
 
@@ -56,10 +57,12 @@ export default function CartPage() {
               <div className="mt-6 space-y-3 rounded-xl border border-white/15 bg-white/5 p-4">
                 {stockConflict.items.map((item) => (
                   <div
-                    key={`${item.productId}-${item.requestedQuantity}`}
+                    key={`${item.productId}-${item.size}-${item.requestedQuantity}`}
                     className="flex flex-col gap-1 text-sm text-white/75 md:flex-row md:items-center md:justify-between"
                   >
-                    <span>{item.productName}</span>
+                    <span>
+                      {item.productName} ({item.size})
+                    </span>
                     <span>
                       Available: {item.availableStock} / Requested:{" "}
                       {item.requestedQuantity}
@@ -103,7 +106,9 @@ export default function CartPage() {
                   <div
                     key={`${item.productId}-${item.size}`}
                     className={`rounded-lg border p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between ${
-                      highlightedProductIds.has(item.productId)
+                      highlightedProductIds.has(
+                        `${item.productId}::${item.size}`,
+                      )
                         ? "border-red-500 bg-red-500/10"
                         : "border-white/30"
                     }`}
@@ -124,14 +129,17 @@ export default function CartPage() {
                           Subtotal: Rp.{subtotal.toLocaleString("id-ID")}
                         </p>
                         {stockConflict?.items?.find(
-                          (conflict) => conflict.productId === item.productId,
+                          (conflict) =>
+                            conflict.productId === item.productId &&
+                            conflict.size === item.size,
                         ) ? (
                           <p className="mt-2 text-sm text-red-400">
                             Only{" "}
                             {
                               stockConflict.items.find(
                                 (conflict) =>
-                                  conflict.productId === item.productId,
+                                  conflict.productId === item.productId &&
+                                  conflict.size === item.size,
                               )?.availableStock
                             }{" "}
                             item(s) currently available.

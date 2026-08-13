@@ -9,6 +9,11 @@ type AddToCartButtonProps = {
   name: string
   price: number
   image: string
+  sizeOptions: Array<{
+    value: string
+    stock: number
+    selectable: boolean
+  }>
   disabled?: boolean
 }
 
@@ -17,14 +22,19 @@ export default function AddToCartButton({
   name,
   price,
   image,
+  sizeOptions,
   disabled = false,
 }: AddToCartButtonProps) {
   const { addToCart } = useCart()
   const router = useRouter()
   const [size, setSize] = useState("")
 
+  const selectableSizes = sizeOptions.filter(
+    (option) => option.selectable && option.stock > 0,
+  )
+
   const isSizeMissing = size.length === 0
-  const isDisabled = disabled || isSizeMissing
+  const isDisabled = disabled || isSizeMissing || selectableSizes.length === 0
 
   const handleAdd = () => {
     if (isDisabled) {
@@ -50,18 +60,23 @@ export default function AddToCartButton({
         <option value="" className="text-black">
           Select size
         </option>
-        <option value="S" className="text-black">
-          S
-        </option>
-        <option value="M" className="text-black">
-          M
-        </option>
-        <option value="L" className="text-black">
-          L
-        </option>
-        <option value="XL" className="text-black">
-          XL
-        </option>
+        {sizeOptions.map((option) => {
+          const isOutOfStock = option.stock <= 0
+          const isSelectable = option.selectable && !isOutOfStock
+
+          return (
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={!isSelectable}
+              className="text-black"
+            >
+              {option.value}
+              {isOutOfStock ? " (Out of stock)" : ""}
+              {!option.selectable ? " (Disabled)" : ""}
+            </option>
+          )
+        })}
       </select>
 
       <button
@@ -70,7 +85,9 @@ export default function AddToCartButton({
         disabled={isDisabled}
         className="w-full h-10 border border-white text-white rounded-lg hover:bg-white hover:text-black transition disabled:cursor-not-allowed disabled:border-white/30 disabled:text-white/40 disabled:hover:bg-transparent disabled:hover:text-white/40"
       >
-        {disabled ? "Stok Habis" : "Add to Cart"}
+        {disabled || selectableSizes.length === 0
+          ? "Stok Habis"
+          : "Add to Cart"}
       </button>
     </div>
   )

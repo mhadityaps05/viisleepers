@@ -22,6 +22,56 @@ function parsePositiveInt(value: FormDataEntryValue | null): number | null {
   return parsed
 }
 
+type ProductSizeInput = {
+  sizeId: string
+  stock: number
+}
+
+function parseProductSizes(
+  value: FormDataEntryValue | null,
+): ProductSizeInput[] | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) {
+      return null
+    }
+
+    const normalized = parsed
+      .map((item) => {
+        const sizeId =
+          typeof item?.sizeId === "string" ? item.sizeId.trim() : ""
+        const stock = Number(item?.stock)
+
+        if (!sizeId || !Number.isInteger(stock) || stock < 0) {
+          return null
+        }
+
+        return {
+          sizeId,
+          stock,
+        }
+      })
+      .filter((item): item is ProductSizeInput => item !== null)
+
+    if (normalized.length === 0 || normalized.length !== parsed.length) {
+      return null
+    }
+
+    const uniqueSizeIds = new Set(normalized.map((item) => item.sizeId))
+    if (uniqueSizeIds.size !== normalized.length) {
+      return null
+    }
+
+    return normalized
+  } catch {
+    return null
+  }
+}
+
 function parseKeepImages(value: FormDataEntryValue | null): string[] {
   if (typeof value !== "string" || !value.trim()) {
     return []
@@ -47,7 +97,16 @@ export async function GET(
 ) {
   const { id } = await context.params
 
-  const product = await prisma.product.findUnique({ where: { id } })
+  const product = await prisma.product.findUnique({
+    where: { id },
+    include: {
+      productSizes: {
+        include: {
+          size: true,
+        },
+      },
+    },
+  })
   if (!product) {
     return NextResponse.json({ message: "Product not found." }, { status: 404 })
   }
@@ -70,7 +129,7 @@ export async function PUT(
   const name = formData.get("name")
   const category = formData.get("category")
   const price = parsePositiveInt(formData.get("price"))
-  const stock = parsePositiveInt(formData.get("stock"))
+  const productSizes = parseProductSizes(formData.get("productSizes"))
   const keepImages = parseKeepImages(formData.get("keepImages"))
   const imageFiles = parseImageFiles(formData)
 
@@ -94,9 +153,11 @@ export async function PUT(
     )
   }
 
-  if (stock === null) {
+  if (!productSizes) {
     return NextResponse.json(
-      { message: "Stock must be a non-negative integer." },
+      {
+        message: "At least one valid size with non-negative stock is required.",
+      },
       { status: 400 },
     )
   }
@@ -121,16 +182,47 @@ export async function PUT(
   try {
     newImages = await saveImageFiles(imageFiles)
     const mergedImages = [...safeKeepImages, ...newImages]
-
-    const product = await prisma.product.update({
-      where: { id },
-      data: {
-        name: name.trim(),
-        category: normalizedCategory,
-        price,
-        stock,
-        images: mergedImages,
+    const sizeIds = productSizes.map((item) => item.sizeId)
+    const validSizes = await prisma.size.findMany({
+      where: {
+        id: {
+          in: sizeIds,
+        },
       },
+      select: { id: true },
+    })
+
+    if (validSizes.length !== sizeIds.length) {
+      throw new Error("One or more selected sizes no longer exist.")
+    }
+
+    const totalStock = productSizes.reduce((sum, item) => sum + item.stock, 0)
+
+    const product = await prisma.$transaction(async (tx) => {
+      const updatedProduct = await tx.product.update({
+        where: { id },
+        data: {
+          name: name.trim(),
+          category: normalizedCategory,
+          price,
+          stock: totalStock,
+          images: mergedImages,
+        },
+      })
+
+      await tx.productSize.deleteMany({
+        where: { productId: id },
+      })
+
+      await tx.productSize.createMany({
+        data: productSizes.map((item) => ({
+          productId: id,
+          sizeId: item.sizeId,
+          stock: item.stock,
+        })),
+      })
+
+      return updatedProduct
     })
 
     if (removedImages.length) {

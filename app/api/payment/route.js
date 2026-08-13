@@ -93,6 +93,12 @@ function buildSnapItemDetails(cartItems, shippingFee, shippingSelection) {
   return productItems
 }
 
+function normalizeSizeValue(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+}
+
 async function getStockConflicts(cartItems) {
   const productIds = [...new Set(cartItems.map((item) => item.productId))]
 
@@ -106,6 +112,16 @@ async function getStockConflicts(cartItems) {
       id: true,
       name: true,
       stock: true,
+      productSizes: {
+        include: {
+          size: {
+            select: {
+              value: true,
+              active: true,
+            },
+          },
+        },
+      },
     },
   })
 
@@ -113,7 +129,48 @@ async function getStockConflicts(cartItems) {
 
   return cartItems.flatMap((item) => {
     const product = productsById.get(item.productId)
-    const availableStock = product?.stock ?? 0
+
+    if (!product) {
+      return [
+        {
+          productId: item.productId,
+          productName: item.name || "Unavailable Product",
+          size: item.size,
+          availableStock: 0,
+          requestedQuantity: item.quantity,
+        },
+      ]
+    }
+
+    const normalizedSize = normalizeSizeValue(item.size)
+    const hasConfiguredSizes = product.productSizes.length > 0
+
+    if (hasConfiguredSizes) {
+      const matchedProductSize = product.productSizes.find(
+        (entry) => normalizeSizeValue(entry.size.value) === normalizedSize,
+      )
+      const availableStock =
+        matchedProductSize && matchedProductSize.size.active
+          ? matchedProductSize.stock
+          : 0
+
+      if (availableStock >= item.quantity) {
+        return []
+      }
+
+      return [
+        {
+          productId: item.productId,
+          productName: product.name || item.name || "Unavailable Product",
+          size: item.size,
+          availableStock,
+          requestedQuantity: item.quantity,
+        },
+      ]
+    }
+
+    const availableStock =
+      normalizedSize === "default" ? (product?.stock ?? 0) : 0
 
     if (availableStock >= item.quantity) {
       return []
@@ -123,6 +180,7 @@ async function getStockConflicts(cartItems) {
       {
         productId: item.productId,
         productName: product?.name || item.name || "Unavailable Product",
+        size: item.size,
         availableStock,
         requestedQuantity: item.quantity,
       },

@@ -57,9 +57,96 @@ function mapMidtransStatus(transactionStatus) {
   return null
 }
 
+function normalizeSizeValue(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+}
+
 async function reduceStockForOrder(tx, orderItems) {
+  const groupedItems = new Map()
+
   for (const item of orderItems) {
-    const updated = await tx.product.updateMany({
+    const key = `${item.productId}::${normalizeSizeValue(item.size)}`
+    const existing = groupedItems.get(key)
+
+    if (existing) {
+      existing.quantity += item.quantity
+    } else {
+      groupedItems.set(key, {
+        productId: item.productId,
+        size: item.size,
+        quantity: item.quantity,
+      })
+    }
+  }
+
+  const groupedList = Array.from(groupedItems.values())
+  const productIds = [...new Set(groupedList.map((item) => item.productId))]
+
+  const productSizeRows = await tx.productSize.findMany({
+    where: {
+      productId: {
+        in: productIds,
+      },
+    },
+    include: {
+      size: {
+        select: {
+          value: true,
+        },
+      },
+    },
+  })
+
+  const productSizesByProductId = productSizeRows.reduce((acc, row) => {
+    if (!acc.has(row.productId)) {
+      acc.set(row.productId, [])
+    }
+
+    acc.get(row.productId).push(row)
+    return acc
+  }, new Map())
+
+  for (const item of groupedList) {
+    const sizeRows = productSizesByProductId.get(item.productId) || []
+
+    if (sizeRows.length > 0) {
+      const matchedRow = sizeRows.find(
+        (row) =>
+          normalizeSizeValue(row.size.value) === normalizeSizeValue(item.size),
+      )
+
+      if (!matchedRow) {
+        throw new Error(
+          `Insufficient stock for product ${item.productId} size ${item.size}.`,
+        )
+      }
+
+      const updatedSizeStock = await tx.productSize.updateMany({
+        where: {
+          id: matchedRow.id,
+          stock: {
+            gte: item.quantity,
+          },
+        },
+        data: {
+          stock: {
+            decrement: item.quantity,
+          },
+        },
+      })
+
+      if (updatedSizeStock.count !== 1) {
+        throw new Error(
+          `Insufficient stock for product ${item.productId} size ${item.size}.`,
+        )
+      }
+
+      continue
+    }
+
+    const updatedProductStock = await tx.product.updateMany({
       where: {
         id: item.productId,
         stock: {
@@ -73,8 +160,26 @@ async function reduceStockForOrder(tx, orderItems) {
       },
     })
 
-    if (updated.count !== 1) {
-      throw new Error(`Insufficient stock for product ${item.productId}.`)
+    if (updatedProductStock.count !== 1) {
+      throw new Error(
+        `Insufficient legacy stock for product ${item.productId}.`,
+      )
+    }
+  }
+
+  for (const productId of productIds) {
+    const sizeRows = await tx.productSize.findMany({
+      where: { productId },
+      select: { stock: true },
+    })
+
+    if (sizeRows.length > 0) {
+      const totalStock = sizeRows.reduce((sum, row) => sum + row.stock, 0)
+
+      await tx.product.update({
+        where: { id: productId },
+        data: { stock: totalStock },
+      })
     }
   }
 }
