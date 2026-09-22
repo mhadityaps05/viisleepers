@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireAdmin } from "@/lib/auth"
 
-export async function DELETE(_request, { params }) {
+export async function DELETE(request, { params }) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const { id } = await params
 
   if (!id || typeof id !== "string") {

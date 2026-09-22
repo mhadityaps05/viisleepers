@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import Lenis from "lenis"
 import Navbar from "./component/navbar/page"
 import Home from "./home/page"
@@ -18,6 +18,8 @@ export default function HomeClient({ children }: HomeClientProps) {
   // biar nggak ada hydration mismatch.
   const [showLoading, setShowLoading] = useState(true)
   const [checkedSession, setCheckedSession] = useState(false)
+  const lenisRef = useRef<Lenis | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     // Ini jalan HANYA di client, SETELAH hydration selesai.
@@ -43,13 +45,61 @@ export default function HomeClient({ children }: HomeClientProps) {
       smoothWheel: true,
       syncTouch: false,
     })
+    lenisRef.current = lenis
     function raf(time: number) {
       lenis.raf(time)
       requestAnimationFrame(raf)
     }
     requestAnimationFrame(raf)
-    return () => lenis.destroy()
+    return () => {
+      lenisRef.current = null
+      lenis.destroy()
+    }
   }, [])
+
+  // Konten asli (Home/About/children/Footer) baru mount setelah showLoading
+  // jadi false, dan tinggi totalnya masih bisa berubah belakangan (gambar
+  // yang baru selesai fetch+decode, dsb). Daripada menebak titik waktu yang
+  // "aman" untuk resize, observe langsung elemen pembungkus konten: setiap
+  // kali tinggi kontennya berubah — karena mount awal, gambar yang baru
+  // selesai load, atau sebab lain — paksa Lenis hitung ulang document
+  // height. requestAnimationFrame di sini cuma buat coalesce beberapa
+  // notifikasi ResizeObserver yang datang beruntun (mis. banyak gambar
+  // selesai load hampir bersamaan) jadi satu resize() per frame.
+  useEffect(() => {
+    if (showLoading) {
+      return
+    }
+
+    const target = contentRef.current
+
+    if (!target || typeof ResizeObserver === "undefined") {
+      return
+    }
+
+    let frame: number | null = null
+
+    const observer = new ResizeObserver(() => {
+      if (frame !== null) {
+        return
+      }
+
+      frame = requestAnimationFrame(() => {
+        frame = null
+        lenisRef.current?.resize()
+      })
+    })
+
+    observer.observe(target)
+
+    return () => {
+      observer.disconnect()
+
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+    }
+  }, [showLoading])
 
   const handleLoadingComplete = useCallback(() => {
     sessionStorage.setItem(LOADING_SEEN_KEY, "true")
@@ -63,7 +113,7 @@ export default function HomeClient({ children }: HomeClientProps) {
   }
 
   return (
-    <div>
+    <div ref={contentRef}>
       {showLoading && <Loading onComplete={handleLoadingComplete} />}
       {!showLoading && (
         <>

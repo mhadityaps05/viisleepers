@@ -39,7 +39,12 @@ export default function ShopSection({ groupedProducts }: ShopSectionProps) {
                       aria-label={`View ${item.name}`}
                       className="flex flex-col items-start text-left cursor-pointer focus:outline-none"
                     >
-                      <img src={item.images[0]} alt={`${item.name} image`} />
+                      <img
+                        src={item.images[0]}
+                        alt={`${item.name} image`}
+                        width={800}
+                        height={1000}
+                      />
                       <div className="mt-5 ml-5">
                         <h2>{item.name}</h2>
                         <h3>{`Rp.${item.price.toLocaleString("id-ID")}`}</h3>

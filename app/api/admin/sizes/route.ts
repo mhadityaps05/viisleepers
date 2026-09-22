@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireAdmin } from "@/lib/auth"
 
 function normalizeSizeValue(value: unknown): string {
   if (typeof value !== "string") {
@@ -9,7 +10,13 @@ function normalizeSizeValue(value: unknown): string {
   return value.trim()
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const sizes = await prisma.size.findMany({
     orderBy: [{ active: "desc" }, { value: "asc" }],
   })
@@ -17,7 +24,13 @@ export async function GET() {
   return NextResponse.json({ sizes })
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const body = (await request.json()) as { value?: unknown; active?: unknown }
 

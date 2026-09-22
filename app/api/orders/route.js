@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireAdmin } from "@/lib/auth"
 
 const PAGE_SIZE = 10
 
@@ -89,6 +90,12 @@ async function generateUniqueOrderNumber() {
 }
 
 export async function GET(request) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const searchParams = request.nextUrl.searchParams
 

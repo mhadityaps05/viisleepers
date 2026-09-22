@@ -1,5 +1,5 @@
 "use client"
-import React, { useEffect, useRef } from "react"
+import { useEffect, useRef } from "react"
 import Bg from "../component/bg/bg"
 import gsap from "gsap"
 
@@ -11,67 +11,26 @@ function Home() {
     if (!container) return
 
     const ctx = gsap.context(() => {
-      const tl = gsap.timeline()
+      const tl = gsap.timeline({
+        defaults: { ease: "power3.out" },
+      })
 
       tl.fromTo(
         ".home-title",
         { y: 50, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 1,
-          ease: "power3.out",
-        },
+        { y: 0, opacity: 1, duration: 1 },
       )
       tl.fromTo(
         ".home-line",
-        {
-          scaleX: 0,
-          transformOrigin: "50% 50%",
-        },
-        {
-          scaleX: 1,
-          duration: 0.8,
-          ease: "power3.out",
-        },
+        { scaleX: 0 },
+        { scaleX: 1, duration: 0.8 },
         "<0.2",
       )
-      tl.fromTo(
-        ".home-copy > div",
-        {
-          y: 30,
-          opacity: 0,
-        },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.8,
-          ease: "power3.out",
-          stagger: 0.15,
-        },
-        "<0.2",
-      )
-      tl.fromTo(
-        ".bg-media",
-        {
-          scale: 0.5,
-          transformOrigin: "50% 50%",
-        },
-        {
-          scale: 1,
-          duration: 1.4,
-          ease: "power3.out",
-        },
-        0,
-      )
+      tl.fromTo(".bg-media", { scale: 0.5 }, { scale: 1, duration: 1.4 }, 0)
       tl.fromTo(
         ".bg-overlay",
         { opacity: 0.45 },
-        {
-          opacity: 0.2,
-          duration: 1.2,
-          ease: "power2.out",
-        },
+        { opacity: 0.2, duration: 1.2, ease: "power2.out" },
         0,
       )
     }, container)
@@ -87,21 +46,12 @@ function Home() {
       <Bg />
 
       <div className="relative z-10 flex h-full w-full items-start md:items-center">
-        <div className="w-full max-w-6xl mx-auto px-4 font-benguiat text-center md:text-left">
-          <div className="home-title text-5xl md:text-9xl font-bold md:mt-[10%] mt-[50%] flex justify-center">
+        <div className="max-w-6xl mx-auto px-4 font-benguiat text-center md:text-left">
+          <div className="home-title text-5xl md:text-9xl font-bold md:mt-[10%] mt-[80%] flex justify-center">
             SEVEN SLEEPERS
           </div>
           <div className="home-line border-b-2 border-white w-full mt-4"></div>
-          <div className="home-copy flex flex-col md:flex-row justify-start gap-8 md:gap-[15%] text-base md:text-2xl mt-10 md:mt-[10%] text-left">
-            <div>
-              a famous ancient legend about a group of persecuted youths who hid
-              in a cave and miraculously slept for roughly 300 years
-            </div>
-            <div>
-              Premium essentials crafted with comfort, simplicity, and lasting
-              quality.
-            </div>
-          </div>
+          <div className="home-copy flex flex-col md:flex-row justify-start gap-8 md:gap-[15%] text-base md:text-2xl mt-10 md:mt-[10%] text-left text-white/60"></div>
         </div>
       </div>
 

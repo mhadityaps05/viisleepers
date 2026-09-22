@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { normalizeCategory } from "@/lib/category"
 import { prisma } from "@/lib/prisma"
+import { requireAdmin } from "@/lib/auth"
 import {
   deleteImageFiles,
   parseImageFiles,
@@ -72,7 +73,13 @@ function parseProductSizes(
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const products = await prisma.product.findMany({
     orderBy: { createdAt: "desc" },
     include: {
@@ -87,7 +94,13 @@ export async function GET() {
   return NextResponse.json({ products })
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const formData = await request.formData()
 
   const name = formData.get("name")

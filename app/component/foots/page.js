@@ -134,8 +134,7 @@ export default function Page() {
         </div>
 
         <div className="lg:pt-20 pt-10">
-          <span className="text-white/20">Copyrigth 2026 viisleepers</span>
-          <span className="lg:ml-56 ml-[25%]">Credits</span>
+          <span className="text-white/20">© 2026 viisleepers</span>
         </div>
       </div>
     </div>

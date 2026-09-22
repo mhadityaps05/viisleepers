@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { normalizeCategory } from "@/lib/category"
 import { prisma } from "@/lib/prisma"
+import { requireAdmin } from "@/lib/auth"
 import {
   deleteImageFiles,
   parseImageFiles,
@@ -92,9 +93,15 @@ function parseKeepImages(value: FormDataEntryValue | null): string[] {
 }
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const { id } = await context.params
 
   const product = await prisma.product.findUnique({
@@ -115,9 +122,15 @@ export async function GET(
 }
 
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const { id } = await context.params
 
   const existingProduct = await prisma.product.findUnique({ where: { id } })
@@ -242,9 +255,15 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const { id } = await context.params
 
   const existingProduct = await prisma.product.findUnique({ where: { id } })

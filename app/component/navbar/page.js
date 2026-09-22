@@ -17,6 +17,9 @@ export default function Navbar() {
       </Link>
 
       <div className="flex gap-10 text-xl lg:text-2xl">
+        <Link href="/ticket" className="text-white">
+          Ticket
+        </Link>
         <Link href="/shop" className="text-white">
           Shop
         </Link>

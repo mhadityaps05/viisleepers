@@ -5,11 +5,27 @@ export default function about() {
     <div className="relative z-10 mt-[100vh] w-full min-h-screen bg-black font-benguiat overflow-hidden">
       <div className="lg:grid grid-cols-2 grid-rows-1 gap-2">
         <div className="lg:row-span-2">
-          <img src={"img1.png"} alt="img" className="w-[140%] object-cover" />
+          <img
+            src={"img1.png"}
+            alt="img"
+            width={821}
+            height={1045}
+            className="w-[140%] object-cover"
+          />
         </div>
         <div className="grid grid-cols-2 gap-2 lg:pr-2 p-2">
-          <img src={"asset/preview1.JPG"} className="w-full cursor-pointer" />
-          <img src={"asset/preview2.JPG"} className="w-full cursor-pointer" />
+          <img
+            src={"asset/preview1.JPG"}
+            width={1638}
+            height={2048}
+            className="w-full cursor-pointer"
+          />
+          <img
+            src={"asset/preview2.JPG"}
+            width={1638}
+            height={2048}
+            className="w-full cursor-pointer"
+          />
         </div>
 
         <div className="absolute z-12 w-auto top-[40%] lg:top-[55%] left-2 md:left-5 px-2 md:px-0">

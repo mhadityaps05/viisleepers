@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { sendReturnStatusUpdateEmail } from "@/lib/return-request-email"
+import { requireAdmin } from "@/lib/auth"
 
 const ALLOWED_RETURN_STATUSES = new Set([
   "Pending",
@@ -10,6 +11,12 @@ const ALLOWED_RETURN_STATUSES = new Set([
 ])
 
 export async function PATCH(request, { params }) {
+  const admin = await requireAdmin(request)
+
+  if (!admin) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   try {
     const { id } = await params
     const body = await request.json()

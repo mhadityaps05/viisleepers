@@ -114,7 +114,7 @@ export default function Page() {
         <img src="/asset/contact.png" alt="Contact" />
       </div>
 
-      <div className="absolute top-30 lg:top-130 left-10 text-xl lg:text-5xl">
+      <div className="absolute top-30 lg:top-110 left-10 text-xl lg:text-5xl">
         <p>Contact</p>
       </div>
       <div className="pt-10 text-xl">

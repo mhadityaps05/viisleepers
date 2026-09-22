@@ -1,7 +1,10 @@
 import crypto from "node:crypto"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { sendPaymentSuccessEmail } from "@/lib/order-status-email"
+import {
+  sendAdminPaymentNotificationEmail,
+  sendPaymentSuccessEmail,
+} from "@/lib/order-status-email"
 
 export const runtime = "nodejs"
 
@@ -203,6 +206,10 @@ export async function POST(request) {
     const grossAmount = String(payload?.gross_amount || "")
     const signatureKey = String(payload?.signature_key || "")
     const transactionStatus = String(payload?.transaction_status || "")
+    const paymentType = String(payload?.payment_type || "")
+    const transactionTime = payload?.transaction_time
+      ? String(payload.transaction_time)
+      : new Date().toISOString()
 
     if (!orderId || !statusCode || !grossAmount || !signatureKey) {
       return NextResponse.json(
@@ -320,6 +327,32 @@ export async function POST(request) {
         })
       } catch {
         // Keep webhook idempotent and successful even when email fails.
+      }
+
+      // Notify the store owner too. Failure here must never fail the
+      // webhook response — a non-200 makes Midtrans retry the whole
+      // notification, which would re-run this block unnecessarily.
+      try {
+        await sendAdminPaymentNotificationEmail({
+          orderNumber: order.orderNumber,
+          customerName: order.customerName,
+          customerEmail: order.email,
+          customerPhone: order.phone,
+          orderItems: order.orderItems.map((item) => ({
+            productName: item.product?.name || "Product",
+            size: item.size,
+            quantity: item.quantity,
+            price: item.priceAtPurchase,
+          })),
+          total: order.total,
+          paymentMethod: paymentType,
+          transactionTime,
+        })
+      } catch (error) {
+        console.error("[ADMIN_PAYMENT_NOTIFICATION_EMAIL]", {
+          orderNumber: order.orderNumber,
+          error: error instanceof Error ? error.message : String(error),
+        })
       }
     }
 
