@@ -5,6 +5,7 @@ import {
   sendAdminPaymentNotificationEmail,
   sendPaymentSuccessEmail,
 } from "@/lib/order-status-email"
+import { sendTicketConfirmationEmail } from "@/lib/ticket-email"
 
 export const runtime = "nodejs"
 
@@ -16,6 +17,30 @@ const STOCK_ALREADY_REDUCED_STATUSES = new Set([
   "Shipped",
   "Completed",
 ])
+
+// Once a TicketOrder reaches any of these, further notifications for it
+// (Midtrans retries/duplicates) are no-ops — never regenerate tickets,
+// never release quota twice.
+const TICKET_ORDER_FINAL_STATUSES = new Set([
+  "Paid",
+  "Expired",
+  "Cancelled",
+  "Failed",
+  "Refunded",
+  "Partially Refunded",
+])
+
+// Statuses that mean the reserved quota (incremented at checkout) should be
+// released back to the pool.
+const TICKET_ORDER_QUOTA_RELEASE_STATUSES = new Set([
+  "Expired",
+  "Cancelled",
+  "Failed",
+])
+
+function generateTicketCode() {
+  return `TIX-${crypto.randomBytes(6).toString("hex").toUpperCase()}`
+}
 
 function buildSignature(orderId, statusCode, grossAmount, serverKey) {
   return crypto
@@ -187,6 +212,105 @@ async function reduceStockForOrder(tx, orderItems) {
   }
 }
 
+async function handleTicketOrderNotification({
+  ticketOrder,
+  nextStatus,
+}) {
+  // 1) Idempotency guard: a Midtrans retry/duplicate for an order that's
+  // already in a final state must be a full no-op.
+  if (TICKET_ORDER_FINAL_STATUSES.has(ticketOrder.status)) {
+    return NextResponse.json({
+      message: "Ticket order already finalized.",
+    })
+  }
+
+  if (nextStatus === "Paid") {
+    const result = await prisma.$transaction(async (tx) => {
+      const becamePaid = await tx.ticketOrder.updateMany({
+        where: {
+          id: ticketOrder.id,
+          status: {
+            notIn: [...TICKET_ORDER_FINAL_STATUSES],
+          },
+        },
+        data: { status: "Paid" },
+      })
+
+      if (becamePaid.count !== 1) {
+        return { becamePaid: false, codes: [] }
+      }
+
+      // Quota was already reserved (TicketType.sold incremented) at
+      // checkout time, so it must NOT be touched again here.
+      const codes = Array.from({ length: ticketOrder.quantity }, () =>
+        generateTicketCode(),
+      )
+
+      await tx.ticket.createMany({
+        data: codes.map((code) => ({
+          ticketOrderId: ticketOrder.id,
+          ticketTypeId: ticketOrder.ticketTypeId,
+          buyerName: ticketOrder.buyerName,
+          buyerEmail: ticketOrder.buyerEmail,
+          code,
+          status: "Valid",
+        })),
+      })
+
+      return { becamePaid: true, codes }
+    })
+
+    if (!result.becamePaid) {
+      // Lost the race to a concurrent delivery of the same notification.
+      return NextResponse.json({ message: "Notification processed." })
+    }
+
+    try {
+      await sendTicketConfirmationEmail({
+        buyerName: ticketOrder.buyerName,
+        buyerEmail: ticketOrder.buyerEmail,
+        orderNumber: ticketOrder.orderNumber,
+        eventName: ticketOrder.ticketType?.event?.name || "Event",
+        ticketTypeName: ticketOrder.ticketType?.name || "Ticket",
+        quantity: ticketOrder.quantity,
+        total: ticketOrder.total,
+        ticketCodes: result.codes,
+      })
+    } catch (error) {
+      // Keep the webhook idempotent and successful even when email fails.
+      console.error("[TICKET_CONFIRMATION_EMAIL]", {
+        orderNumber: ticketOrder.orderNumber,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    return NextResponse.json({ message: "Notification processed." })
+  }
+
+  if (TICKET_ORDER_QUOTA_RELEASE_STATUSES.has(nextStatus)) {
+    await prisma.$transaction(async (tx) => {
+      const released = await tx.ticketOrder.updateMany({
+        where: {
+          id: ticketOrder.id,
+          status: {
+            notIn: [...TICKET_ORDER_FINAL_STATUSES],
+          },
+        },
+        data: { status: nextStatus },
+      })
+
+      if (released.count === 1) {
+        await tx.ticketType.update({
+          where: { id: ticketOrder.ticketTypeId },
+          data: { sold: { decrement: ticketOrder.quantity } },
+        })
+      }
+    })
+  }
+
+  return NextResponse.json({ message: "Notification processed." })
+}
+
 export async function POST(request) {
   try {
     // 1) Read required secret and parse webhook payload.
@@ -240,6 +364,25 @@ export async function POST(request) {
         { message: `Ignored transaction status: ${transactionStatus}` },
         { status: 200 },
       )
+    }
+
+    // Ticket orders and product orders share the same order-number format,
+    // so dispatch on whichever table actually has a matching row.
+    const ticketOrder = await prisma.ticketOrder.findUnique({
+      where: { orderNumber: orderId },
+      include: {
+        ticketType: {
+          include: {
+            event: {
+              select: { name: true },
+            },
+          },
+        },
+      },
+    })
+
+    if (ticketOrder) {
+      return await handleTicketOrderNotification({ ticketOrder, nextStatus })
     }
 
     const order = await prisma.order.findUnique({

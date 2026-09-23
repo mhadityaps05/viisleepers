@@ -123,3 +123,73 @@ model ReturnRequest {
   @@index([status])
   @@index([createdAt])
 }
+
+model Event {
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  name        String
+  description String?
+  date        DateTime
+  location    String
+  posterUrl   String?
+  active      Boolean      @default(true)
+  ticketTypes TicketType[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model TicketType {
+  id           String        @id @default(cuid())
+  eventId      String
+  name         String
+  price        Int
+  quota        Int
+  sold         Int           @default(0)
+  active       Boolean       @default(true)
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketOrders TicketOrder[]
+  tickets      Ticket[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([eventId])
+}
+
+model TicketOrder {
+  id                   String     @id @default(cuid())
+  orderNumber          String     @unique
+  ticketTypeId         String
+  buyerName            String
+  buyerEmail           String
+  buyerPhone           String
+  quantity             Int
+  priceAtPurchase      Int
+  total                Int
+  paymentSessionStatus String     @default("NOT_STARTED")
+  midtransToken        String?
+  midtransRedirectUrl  String?
+  status               String     @default("Pending")
+  ticketType           TicketType @relation(fields: [ticketTypeId], references: [id])
+  tickets              Ticket[]
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  @@index([ticketTypeId])
+}
+
+model Ticket {
+  id            String      @id @default(cuid())
+  ticketOrderId String
+  ticketTypeId  String
+  buyerName     String
+  buyerEmail    String
+  code          String?     @unique
+  status        String      @default("Valid")
+  ticketOrder   TicketOrder @relation(fields: [ticketOrderId], references: [id], onDelete: Cascade)
+  ticketType    TicketType  @relation(fields: [ticketTypeId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([ticketOrderId])
+  @@index([ticketTypeId])
+}

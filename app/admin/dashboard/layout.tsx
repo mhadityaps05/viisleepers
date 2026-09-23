@@ -10,6 +10,8 @@ const menu = [
   { name: "Orders", href: "/admin/dashboard/orders" },
   { name: "Returns", href: "/admin/dashboard/returns" },
   { name: "Subscribers", href: "/admin/dashboard/customers" },
+  { name: "Events", href: "/admin/dashboard/events" },
+  { name: "Tickets", href: "/admin/dashboard/tickets" },
 ]
 
 export default function AdminLayout({
